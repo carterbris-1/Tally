@@ -16,7 +16,7 @@ your own. Install it to your home screen and it behaves like an app.
 ```sh
 npm install
 npm run dev        # http://localhost:5173
-npm run test       # 81 tests
+npm run test       # 98 tests
 npm run build
 ```
 

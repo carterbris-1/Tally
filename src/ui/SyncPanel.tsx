@@ -5,8 +5,10 @@ import { currentEmail, getSyncState, signIn, signOut, subscribeToSync, sync } fr
 export function SyncPanel() {
   const state = useSyncExternalStore(subscribeToSync, getSyncState, getSyncState)
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [account, setAccount] = useState<string | null>(null)
   const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     void currentEmail().then(setAccount)
@@ -44,6 +46,22 @@ export function SyncPanel() {
     }
   }
 
+  const attempt = async (fn: (e: string, p: string) => Promise<string>): Promise<void> => {
+    if (!email.trim() || password.length < 6) {
+      setMessage('Enter your email and a password of at least 6 characters.')
+      return
+    }
+    setBusy(true)
+    setMessage('')
+    const result = await fn(email.trim(), password)
+    setBusy(false)
+    if (result) setMessage(result)
+    else {
+      setPassword('')
+      setAccount(await currentEmail())
+    }
+  }
+
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ fontSize: 13.5, marginBottom: 10 }}>
@@ -73,10 +91,31 @@ export function SyncPanel() {
               placeholder="you@example.com"
             />
           </div>
-          <button className="pill" onClick={() => void signIn(email).then(setMessage)}>
-            Send sign-in link
-          </button>
+          <div className="field">
+            <label htmlFor="sync-password">Password</label>
+            <input
+              id="sync-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void attempt(signIn)}
+              placeholder="At least 6 characters"
+            />
+          </div>
+          <div className="seg">
+            <button className="pill active" disabled={busy} onClick={() => void attempt(signIn)}>
+              Sign in
+            </button>
+          </div>
           {message ? <div className="muted" style={{ fontSize: 12.5, marginTop: 9 }}>{message}</div> : null}
+          <div className="muted" style={{ fontSize: 12, marginTop: 9 }}>
+            Use the same email and password on your phone — that is what makes the two
+            devices one tracker. Let the keychain remember it.
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 7 }}>
+            There is no sign-up here. Accounts are created once in the Supabase dashboard.
+          </div>
         </>
       )}
 

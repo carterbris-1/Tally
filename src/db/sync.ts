@@ -167,15 +167,29 @@ export function startSyncLoop(): void {
   window.addEventListener('online', () => void sync())
 }
 
-export async function signIn(email: string): Promise<string> {
+/**
+ * Email and password, not magic links.
+ *
+ * A magic link costs one email per sign-in, and Supabase's free tier allows roughly two
+ * an hour. Signing in on a second device, or mistyping a redirect URL once, exhausts
+ * that. A password costs nothing per use, needs no redirect allow-list, and the phone's
+ * keychain types it for you. For a single-user tracker that is the whole trade.
+ *
+ * Returns an empty string on success, or a message to show.
+ */
+export async function signIn(email: string, password: string): Promise<string> {
   const client = supabase()
   if (!client) return 'Sync is not configured on this build.'
-  const { error } = await client.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.href },
-  })
-  return error ? error.message : 'Check your email for a sign-in link.'
+  const { error } = await client.auth.signInWithPassword({ email, password })
+  if (error) return error.message
+  void sync()
+  return ''
 }
+
+// There is deliberately no signUp here. This is a one-person tracker: the account is
+// created once, by hand, in the Supabase dashboard with "Auto Confirm User" ticked.
+// Removing the path means the app cannot accidentally create a second account — though
+// see the note in SyncPanel about what this does and does not protect.
 
 export async function signOut(): Promise<void> {
   await supabase()?.auth.signOut()

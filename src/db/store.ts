@@ -11,6 +11,7 @@
  */
 
 import { dayKeyFor, type DayConfig } from '../core/dayKey'
+import { normalizeGroup } from '../core/grouping'
 import { repack as computeRepack } from '../core/repack'
 import { DEFAULT_SETTINGS, type Block, type DayPlan, type Entry, type OwnerType, type Phase, type Project, type Settings, type Task, type Todo } from '../core/types'
 import { getAll, getMeta, putMany, setMeta } from './idb'
@@ -415,6 +416,7 @@ export class TallyStore {
       updatedAt: nowIso(),
       deletedAt: null,
       title: input.title,
+      group: normalizeGroup(input.group ?? ''),
       notes: input.notes ?? '',
       targetDate: input.targetDate ?? null,
       colorHex: input.colorHex ?? '#4F46E5',
@@ -428,7 +430,9 @@ export class TallyStore {
   async updateProject(id: string, patch: Partial<Project>): Promise<void> {
     const project = this.state.projects.find((p) => p.id === id)
     if (!project) return
-    await this.persist('projects', [stamp({ ...project, ...patch, id: project.id })])
+    const next = { ...project, ...patch, id: project.id }
+    if (patch.group !== undefined) next.group = normalizeGroup(patch.group)
+    await this.persist('projects', [stamp(next)])
   }
 
   async deleteProject(id: string): Promise<void> {

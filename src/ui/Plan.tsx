@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { addDayKey, formatDayMinute } from '../core/dayKey'
+import { addDayKey } from '../core/dayKey'
 import { BLOCK_GRANULARITY, MINUTES_PER_DAY } from '../core/repack'
 import type { Block } from '../core/types'
 import { blocksFor, planFor } from '../db/selectors'
-import { formatDayKeyLong, formatDuration } from './format'
+import { formatDayKeyLong, formatDayMinute12, formatDuration } from './format'
 import { useNow, useSnapshot, useStore } from './hooks'
 import { Sheet } from './shared/Sheet'
 
@@ -94,7 +94,7 @@ export function Plan() {
         className={`slot${anchor === minute ? ' anchored' : ''}${minute % 60 === 0 ? ' hour' : ''}`}
         style={{ height: SLOT_PX - 2 }}
         onClick={() => tapSlot(minute)}
-        aria-label={`Plan ${formatDayMinute(minute, cfg)}`}
+        aria-label={`Plan ${formatDayMinute12(minute, cfg.dayStartMinute)}`}
       />,
     )
     m += SLOT
@@ -105,7 +105,7 @@ export function Plan() {
   for (let t = 0; t < MINUTES_PER_DAY; t += 60) {
     labels.push(
       <div key={t} className="hour-label num" style={{ height: (60 / SLOT) * SLOT_PX }}>
-        {formatDayMinute(t, cfg)}
+        {formatDayMinute12(t, cfg.dayStartMinute)}
       </div>,
     )
   }
@@ -149,7 +149,7 @@ export function Plan() {
       {selection ? (
         <div className="running-bar">
           <div className="item">
-            <span className="title num">{formatDayMinute(selection.start, cfg)} selected</span>
+            <span className="title num">{formatDayMinute12(selection.start, cfg.dayStartMinute)} selected</span>
             <button className="pill" onClick={() => setAnchor(null)}>
               Cancel
             </button>
@@ -248,7 +248,7 @@ function BlockSheet({ dayKey, draft, block, onClose }: SheetProps) {
 
       <div className="field">
         <label>
-          {formatDayMinute(start, cfg)} – {formatDayMinute(end % MINUTES_PER_DAY, cfg)}
+          {formatDayMinute12(start, cfg.dayStartMinute)} – {formatDayMinute12(end % MINUTES_PER_DAY, cfg.dayStartMinute)}
         </label>
         <div className="seg" style={{ alignItems: 'center' }}>
           <button
@@ -281,7 +281,7 @@ function BlockSheet({ dayKey, draft, block, onClose }: SheetProps) {
             −15m
           </button>
           <span className="num" style={{ minWidth: 82, textAlign: 'center', fontWeight: 620 }}>
-            {formatDayMinute(start, cfg)}
+            {formatDayMinute12(start, cfg.dayStartMinute)}
           </span>
           <button
             className="pill"

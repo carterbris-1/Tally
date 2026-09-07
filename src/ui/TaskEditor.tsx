@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { GoalDirection, Schedule, Task, TaskKind } from '../core/types'
-import { formatDuration, parseDurationToSeconds } from './format'
+import { formatAmount, formatDuration, parseDurationToSeconds } from './format'
 import { useStore } from './hooks'
 import { Sheet } from './shared/Sheet'
 
@@ -32,14 +32,30 @@ export function TaskEditor({ task, onClose }: Props) {
     return kind === 'timer' ? parseDurationToSeconds(goalText) : Number(goalText) || null
   }
 
+  /**
+   * A target-shaped task with no target is the worst of both worlds: it falls through to
+   * "just track", where any activity at all completes the day and starts a streak. One
+   * second of a timer used to earn a tick. The direction and the number arrive together
+   * or not at all.
+   */
+  const parsed = parsedGoal()
+  const needsGoal = kind !== 'checkbox' && direction !== 'none'
+  const goalError = needsGoal && parsed === null
+    ? goalText.trim()
+      ? "That is not a number I can read. Try 30m, 1h 15m, or 90."
+      : direction === 'atMost'
+        ? 'Set the limit, or switch to "Just track".'
+        : 'Set the target, or switch to "Just track".'
+    : ''
+
   const save = (): void => {
     const trimmed = title.trim()
-    if (!trimmed) return
+    if (!trimmed || goalError) return
     const patch = {
       title: trimmed,
       kind,
       goalDirection: kind === 'checkbox' ? ('atLeast' as const) : direction,
-      goalValue: parsedGoal(),
+      goalValue: parsed,
       unitLabel: kind === 'quantity' ? unit.trim() : '',
       quickAdds:
         kind === 'quantity'
@@ -112,7 +128,19 @@ export function TaskEditor({ task, onClose }: Props) {
                 onChange={(e) => setGoalText(e.target.value)}
                 placeholder={kind === 'timer' ? '30m' : '1500'}
                 inputMode={kind === 'timer' ? 'text' : 'decimal'}
+                aria-invalid={goalError ? true : undefined}
               />
+              {goalError ? (
+                <div className="danger-text" style={{ fontSize: 12, marginTop: 6 }}>
+                  {goalError}
+                </div>
+              ) : parsed !== null ? (
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  {direction === 'atMost' ? 'Limit: ' : 'Complete at '}
+                  <strong>{formatAmount({ kind, unitLabel: unit }, parsed)}</strong>
+                  {direction === 'atLeast' ? ' — not a minute sooner.' : ''}
+                </div>
+              ) : null}
               {direction === 'atMost' ? (
                 <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                   A limit can only be called complete once the day ends. Going over marks the day
@@ -184,7 +212,12 @@ export function TaskEditor({ task, onClose }: Props) {
         <button className="btn secondary" onClick={onClose}>
           Cancel
         </button>
-        <button className="btn" onClick={save}>
+        <button
+          className="btn"
+          onClick={save}
+          disabled={Boolean(goalError) || !title.trim()}
+          style={Boolean(goalError) || !title.trim() ? { opacity: 0.45 } : undefined}
+        >
           {task ? 'Save' : 'Create'}
         </button>
       </div>

@@ -1,0 +1,3 @@
+# Tally is a personal tracker. Nothing here is meant to be indexed.
+User-agent: *
+Disallow: /

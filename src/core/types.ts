@@ -73,6 +73,8 @@ export interface Block extends Syncable {
 
 export interface Project extends Syncable {
   title: string
+  /** Free text: "house", "dev", "travel". Empty means ungrouped. Matched case-insensitively. */
+  group: string
   notes: string
   targetDate: string | null
   colorHex: string

@@ -30,7 +30,7 @@ the sync watermarks both depend on it.
 
 ```sh
 npm run dev          # http://localhost:5173
-npm run test         # 81 tests, ~2s
+npm run test         # 98 tests, ~2s
 npm run test:watch   # while working in core/
 npm run typecheck    # strict, noUncheckedIndexedAccess
 npm run build        # tsc -b && vite build

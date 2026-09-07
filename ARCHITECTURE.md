@@ -3,7 +3,7 @@
 Every file and every function in the repo, what it does, and why it is written that
 way. `README.md` is the introduction, `PLAYBOOK.md` is the runbooks, this is the map.
 
-Roughly 4,800 lines of TypeScript across 38 source and test files.
+Roughly 5,000 lines of TypeScript across 40 source and test files.
 
 ---
 
@@ -40,6 +40,7 @@ Roughly 4,800 lines of TypeScript across 38 source and test files.
 | `src/core/streak.ts` | 138 | Day status and streak computation |
 | `src/core/progress.ts` | 36 | Estimate-weighted project progress |
 | `src/core/repack.ts` | 95 | Day-plan block layout |
+| `src/core/grouping.ts` | 47 | Grouping projects by name, case-insensitively |
 | **Data layer** | | |
 | `src/db/idb.ts` | 117 | IndexedDB wrapper and schema versioning |
 | `src/db/store.ts` | 487 | The only place data is mutated |
@@ -66,8 +67,8 @@ Roughly 4,800 lines of TypeScript across 38 source and test files.
 | `src/styles.css` | ~330 | The entire stylesheet |
 | **Tests** | | |
 | `tests/helpers.ts` | — | `wallClock`, `NY`, `hhmm` |
-| `tests/core/*.test.ts` | — | 69 tests over pure functions |
-| `tests/ui/smoke.test.tsx` | — | 12 tests driving the real app |
+| `tests/core/*.test.ts` | — | 82 tests over pure functions |
+| `tests/ui/smoke.test.tsx` | — | 16 tests driving the real app |
 | **Infrastructure** | | |
 | `supabase/schema.sql` | — | Tables and RLS policies |
 | `.github/workflows/deploy.yml` | — | Test, build, publish to Pages |
@@ -170,7 +171,15 @@ saved plan. Rendering resolves the offset against that day's actual start.
 
 ### `Project` / `Phase`
 
-`Project`: `title`, `notes`, `targetDate`, `colorHex`, `isArchived`, `createdAt`.
+`Project`: `title`, **`group`**, `notes`, `targetDate`, `colorHex`, `isArchived`,
+`createdAt`.
+
+`group` is free text — `"house"`, `"dev"`, `"travel"` — with `""` meaning ungrouped. It
+is a plain field rather than its own table because a personal tracker has a handful of
+stable groups, and a table would have bought a collection, a sync entry, an SQL
+migration and a join to rename something you rename once a year. Adding the field cost
+none of that: rows are stored whole in IndexedDB and as jsonb in Supabase, so old
+projects simply read back with no group.
 
 `Phase`: `projectId`, `title`, `notes`, `estimatedHours`, `completedAt`, `sortOrder`.
 
@@ -334,6 +343,17 @@ forward) resolve to the instant just **after** the gap. Both are choices, not ac
 - `limitStatusToday(total, goal)` — `'onTrack' | 'exceeded'`. Never `'complete'`.
 - `skipsUsedInMonth(entries, dayKey)` — counts by the `"YYYY-MM"` prefix, so the
   allowance is per calendar month, not a rolling window.
+
+### `grouping.ts`
+
+- `Group<T>` — `{ key, label, items }`. `key` is case-folded for identity, `label` is the
+  spelling to show.
+- `normalizeGroup(name)` — trims, does not touch case.
+- **`groupByName(items)`** — groups by name **case-insensitively**, so `"Dev"` and
+  `"dev"` are one group rather than two identical-looking headings. The first spelling
+  seen wins the label. Groups sort alphabetically; **ungrouped always sorts last**,
+  because it is the pile you have not dealt with yet.
+- `groupNames(items)` — the existing group names, for the picker's suggestion pills.
 
 ### `progress.ts`
 
@@ -503,6 +523,8 @@ and is applied everywhere.
 | `ProjectView` | `{ project, phases, progress, current, estimatedHours }` |
 | `projectView(s, project)` | |
 | `todosForPhase(s, phaseId)` | |
+| `groupedProjects(s)` | Projects under their group headings, ungrouped last. |
+| `projectGroupNames(s)` | Existing group names, for the picker. |
 | `runningEntries(s)` | Everything running, any owner type. |
 | `orphans(s)` | Entries whose `ownerId` matches no live task, block or phase. |
 
@@ -612,8 +634,9 @@ always derived from `startedAt`.
 | `formatDuration(seconds)` | `"1h 24m"`, `"45m"`, `"0m"` |
 | `formatClock(seconds)` | `"1:24:33"`, `"05:12"` — for a running timer, where seconds matter |
 | `formatAmount(task, value)` | Duration for timers, `"750 ml"` otherwise |
-| `formatGoal(task)` | `"30m goal"`, `"1,500 cal limit"`, or `null` |
+| `formatGoal(task)` | `"30m goal"`, `"1,500 cal limit"`, `"no target set"` for a legacy goal-less task, or `null` |
 | `parseDurationToSeconds(input)` | Accepts `"1h 30m"`, `"90m"`, `"1:30"`, or a bare number read as minutes |
+| `formatDayMinute12(minute, dayStartMinute)` | `"9:00 AM"` — the day plan's clock. Handles the two hours everyone gets wrong: noon is 12 PM, midnight is 12 AM |
 | `formatDayKeyShort` / `formatDayKeyLong` | `"Sep 1"` / `"Tuesday, September 1"` — parsed as UTC so no timezone shifts the label |
 
 ### `Today.tsx`
@@ -669,6 +692,11 @@ quick-adds for quantity; schedule; colour.
 - Fields appear and disappear by kind — a checkbox has no goal, a timer has no unit.
 - Choosing **at most** shows an inline explanation of the rule, at the moment the
   decision is being made rather than in documentation nobody reads.
+- **A direction requires a number.** Save is refused while "at least" or "at most" has no
+  parseable target. Without this, the task falls through to `effectiveGoal`'s `none`
+  branch, where *any* activity completes the day — one second of a timer used to earn a
+  tick and start a streak. The parsed value is echoed back live (`Complete at 30m — not a
+  minute sooner`) so a typo is visible before it is saved.
 - The weekday pills toggle; clearing them all falls back to `daily`.
 
 ### `Todos.tsx`
@@ -690,6 +718,8 @@ any date. It is a canvas, not a list.
 
 - Every slot from the day start to the day start is rendered, at `SLOT_PX = 22` per
   15 minutes, so the column is proportional to real time
+- Clock labels are **12-hour** (`formatDayMinute12`); `core/dayKey.formatDayMinute` stays
+  24-hour because that is also the `<input type="time">` value shape
 - **Tap an empty slot** to anchor a block, **tap a second slot** to stretch it across the
   range, then name it. Two taps works on touch where a drag does not
 - A block renders as one merged cell spanning its slots; the slots it covers are no
@@ -712,16 +742,24 @@ mark done, delete. Refuses to save a block running past the end of the day.
 
 ### `Projects.tsx`
 
-**`Projects()`** — list with a weighted progress bar, the current phase, and the total
-estimate. Selecting one swaps to detail in the same component.
+**`Projects()`** — projects under **group headings** (`house`, `dev`, `travel`), each row
+carrying a weighted progress bar, the current phase and the total estimate. Selecting one
+swaps to detail in the same component.
+
+A lone `Ungrouped` heading over everything is noise, so headings only appear once there
+is more than one group or a real group exists.
 
 **`ProjectDetail`** *(internal)* — progress bar, notes, phases. Each phase shows its
 number or a tick, its estimate, and its to-do count. **When every to-do in a phase is
 done it offers "All to-dos done — mark phase done?" rather than closing the phase
 itself** — the affordance is the point.
 
-**`ProjectEditor`** / **`PhaseEditor`** *(internal)* — title, notes, target date;
-title, estimated hours, notes, and reordering.
+**`ProjectEditor`** *(internal)* — title, **group**, notes, target date. Existing groups
+appear as tappable pills beside a free-text field: the pills are what stop `House` and
+`house` forking into two headings, and the field is what lets a new group exist at all.
+`datalist` would have been fewer lines and is unreliable on iOS Safari.
+
+**`PhaseEditor`** *(internal)* — title, estimated hours, notes, and reordering.
 
 ### `SettingsView.tsx`
 
@@ -779,7 +817,7 @@ Notable pieces: the `.tabs` bar becoming a sidebar at 900px; `.heat` as a 7-row
 
 ## 7. Tests
 
-**81 tests, ~2 seconds.** `npm run test`.
+**98 tests, ~2 seconds.** `npm run test`.
 
 ### `tests/helpers.ts`
 
@@ -790,7 +828,7 @@ Notable pieces: the `.tabs` bar becoming a sidebar at 900px; `.heat` as a 7-row
   caught it. Never construct a test instant by adding hours.
 - `hhmm(date, cfg?)` — formats an instant back to wall clock.
 
-### `tests/core/` — 69 tests
+### `tests/core/` — 82 tests
 
 | File | Covers |
 |---|---|
@@ -799,9 +837,10 @@ Notable pieces: the `.tabs` bar becoming a sidebar at 900px; `.heat` as a 7-row
 | `sessionSplit.test.ts` (11) | **03:45→05:15 = 15/75**, the same across spring-forward and fall-back, single-day sessions, a three-day session, zero-length and inverted, derived elapsed across a two-day gap, block splitting, manual entries, tombstones and skips |
 | `streak.test.ts` (20) | Every `evaluateDay` branch, checkbox implicit goal, counting back through a failure, an unfinished today, limits excluded until day end, a blown limit breaking immediately, skips and unscheduled days as neutral, **recomputation after editing a past day**, and the passive limit-streak behaviour with its `createdAt` floor |
 | `progress.test.ts` (8) | **20h + 2h = 91%**, the 9% mirror case, zero-estimate fallback, empty, negative estimates, `currentPhase` with out-of-order completion |
+| `grouping.test.ts` (9) | Gathering by group, folding `Dev`/`dev`/`DEV` into one, trimming whitespace, ungrouped sorting last however the field is missing, alphabetical order, and stable order within a group |
 | `repack.test.ts` (10) | **Inserting a block shifts exactly what follows**, nothing before the point moves, no reordering or duration changes, returning only moved blocks, unknown ids, overflow rejection, gaps, overlaps, variance formatting |
 
-### `tests/ui/smoke.test.tsx` — 12 tests
+### `tests/ui/smoke.test.tsx` — 16 tests
 
 jsdom + `fake-indexeddb`. Each starts from `clearAll()`, so titles stay unambiguous.
 

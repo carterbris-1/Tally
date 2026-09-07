@@ -131,19 +131,19 @@ describe('the app', () => {
     fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
 
     // the day starts at 04:00 and runs a full 24 hours, a slot at a time
-    await waitFor(() => expect(screen.getByLabelText('Plan 04:00')).toBeDefined())
-    expect(screen.getByLabelText('Plan 04:15')).toBeDefined()
-    expect(screen.getByLabelText('Plan 03:45')).toBeDefined() // the last slot, next morning
+    await waitFor(() => expect(screen.getByLabelText('Plan 4:00 AM')).toBeDefined())
+    expect(screen.getByLabelText('Plan 4:15 AM')).toBeDefined()
+    expect(screen.getByLabelText('Plan 3:45 AM')).toBeDefined() // the last slot, next morning
   })
 
   it('stretches a block across a tapped range and merges the slots', async () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
-    await waitFor(() => expect(screen.getByLabelText('Plan 09:00')).toBeDefined())
+    await waitFor(() => expect(screen.getByLabelText('Plan 9:00 AM')).toBeDefined())
 
     // tap the start, then tap the last slot it should cover
-    fireEvent.click(screen.getByLabelText('Plan 09:00'))
-    fireEvent.click(screen.getByLabelText('Plan 09:45'))
+    fireEvent.click(screen.getByLabelText('Plan 9:00 AM'))
+    fireEvent.click(screen.getByLabelText('Plan 9:45 AM'))
 
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('What is it?'), { target: { value: 'Study' } })
@@ -153,15 +153,15 @@ describe('the app', () => {
     await waitFor(() => expect(screen.getByText('Study')).toBeDefined())
     // four slots became one hour-long cell, and those slots are no longer tappable
     expect(screen.getAllByText('1h').length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText('Plan 09:15')).toBeNull()
-    expect(screen.queryByLabelText('Plan 09:45')).toBeNull()
-    expect(screen.getByLabelText('Plan 10:00')).toBeDefined()
+    expect(screen.queryByLabelText('Plan 9:15 AM')).toBeNull()
+    expect(screen.queryByLabelText('Plan 9:45 AM')).toBeNull()
+    expect(screen.getByLabelText('Plan 10:00 AM')).toBeDefined()
   })
 
   it('has no timer anywhere in the plan — it is intention, not measurement', async () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
-    await waitFor(() => expect(screen.getByLabelText('Plan 04:00')).toBeDefined())
+    await waitFor(() => expect(screen.getByLabelText('Plan 4:00 AM')).toBeDefined())
     expect(screen.queryByLabelText(/^Start /)).toBeNull()
     expect(screen.queryByLabelText(/^Stop /)).toBeNull()
   })
@@ -200,6 +200,53 @@ describe('the app', () => {
     await waitFor(() => expect(screen.getByText('91%')).toBeDefined())
   })
 
+  it('refuses to save a target-shaped task with no target', async () => {
+    render(<App />)
+    await waitFor(() => expect(screen.getByLabelText('New task')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('New task'))
+
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Title'), { target: { value: 'Read' } })
+    fireEvent.click(within(dialog).getByText('At least'))
+
+    // a direction with no number used to save happily and then complete on any activity
+    expect(within(dialog).getByText(/Set the target/)).toBeDefined()
+    fireEvent.click(within(dialog).getByText('Create'))
+    await flush()
+    expect(store.getSnapshot().tasks).toHaveLength(0)
+
+    fireEvent.change(within(dialog).getByLabelText(/Target/), { target: { value: '30m' } })
+    await waitFor(() => expect(within(dialog).getByText('30m')).toBeDefined())
+    fireEvent.click(within(dialog).getByText('Create'))
+    await flush()
+
+    await waitFor(() => expect(store.getSnapshot().tasks).toHaveLength(1))
+    expect(store.getSnapshot().tasks[0]?.goalValue).toBe(1800)
+  })
+
+  it('is not a success until the whole allocated time is done', async () => {
+    await act(async () => {
+      const task = await store.createTask({
+        title: 'Read',
+        kind: 'timer',
+        goalDirection: 'atLeast',
+        goalValue: 30 * 60,
+      })
+      await store.addManualSeconds('task', task.id, 5 * 60) // 5 of 30 minutes
+    })
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('Read')).toBeDefined())
+    expect(screen.getByText(/30m goal/)).toBeDefined()
+    expect(screen.queryByText('1')).toBeNull() // no tick, no streak, not yet
+
+    const read = store.getSnapshot().tasks.find((t) => t.title === 'Read')!
+    await act(async () => {
+      await store.addManualSeconds('task', read.id, 25 * 60) // now exactly 30
+    })
+    await waitFor(() => expect(screen.getByText('1')).toBeDefined())
+  })
+
   it('counts up inside the ring as the streak grows', async () => {
     await act(async () => {
       await store.createTask({ title: 'Vitamins', kind: 'checkbox' })
@@ -218,6 +265,52 @@ describe('the app', () => {
     fireEvent.click(screen.getByLabelText('Uncheck Vitamins'))
     await flush()
     await waitFor(() => expect(screen.queryByText('1')).toBeNull())
+  })
+
+  it('groups projects under headings and folds casing together', async () => {
+    const { container } = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Projects/ }))
+    await waitFor(() => expect(screen.getByText('No projects')).toBeDefined())
+
+    const addProject = async (title: string, group: string): Promise<void> => {
+      fireEvent.click(screen.getByLabelText('New project'))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByLabelText('Title'), { target: { value: title } })
+      fireEvent.change(within(dialog).getByLabelText('Group'), { target: { value: group } })
+      fireEvent.click(within(dialog).getByText('Save'))
+      await flush()
+    }
+
+    await addProject('Deck', 'house')
+    await addProject('Tally', 'Dev')
+    await addProject('Gutters', '  HOUSE  ')
+    await addProject('Loose end', '')
+
+    await waitFor(() => expect(screen.getByText('Loose end')).toBeDefined())
+
+    // Dev sorts first, HOUSE joined house rather than starting a rival group,
+    // and the ungrouped pile sits at the bottom
+    const headings = [...container.querySelectorAll('.section-label')].map((h) => h.textContent)
+    expect(headings).toEqual(['Dev · 1', 'house · 2', 'Ungrouped · 1'])
+  })
+
+  it('offers existing groups as pills so a typo cannot fork one', async () => {
+    await act(async () => {
+      await store.createProject({ title: 'Deck', group: 'house' })
+    })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Projects/ }))
+    await waitFor(() => expect(screen.getByText('Deck')).toBeDefined())
+
+    fireEvent.click(screen.getByLabelText('New project'))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Title'), { target: { value: 'Gutters' } })
+    fireEvent.click(within(dialog).getByText('house')) // the suggestion pill
+    fireEvent.click(within(dialog).getByText('Save'))
+    await flush()
+
+    await waitFor(() => expect(screen.getByText('Gutters')).toBeDefined())
+    expect(store.getSnapshot().projects.every((p) => p.group === 'house')).toBe(true)
   })
 
   it('opens task detail and shows a streak', async () => {

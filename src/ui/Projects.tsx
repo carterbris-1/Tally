@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Phase, Project } from '../core/types'
-import { liveProjects, projectView, todosForPhase } from '../db/selectors'
+import { groupedProjects, projectGroupNames, projectView, todosForPhase } from '../db/selectors'
 import { useSnapshot, useStore } from './hooks'
 import { Sheet } from './shared/Sheet'
 
@@ -8,18 +8,22 @@ export function Projects() {
   const s = useSnapshot()
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const projects = liveProjects(s)
+  const groups = groupedProjects(s)
+  const total = groups.reduce((n, g) => n + g.items.filter((p) => !p.isArchived).length, 0)
 
   if (openId) return <ProjectDetail projectId={openId} onBack={() => setOpenId(null)} />
+
+  // a lone "Ungrouped" heading over everything is noise, not information
+  const showHeadings = groups.length > 1 || (groups[0]?.key ?? '') !== ''
 
   return (
     <div className="wrap">
       <header className="screen-head">
         <h1>Projects</h1>
-        <span className="sub">{projects.filter((p) => !p.isArchived).length} active</span>
+        <span className="sub">{total} active</span>
       </header>
 
-      {projects.length === 0 ? (
+      {groups.length === 0 ? (
         <div className="empty">
           <strong>No projects</strong>
           Phased work with an hour estimate each. Progress is weighted by estimate, so a
@@ -27,29 +31,39 @@ export function Projects() {
         </div>
       ) : null}
 
-      {projects.map((project) => {
-        const v = projectView(s, project)
-        return (
-          <button
-            key={project.id}
-            className="row"
-            style={{ display: 'block', opacity: project.isArchived ? 0.5 : 1 }}
-            onClick={() => setOpenId(project.id)}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-              <span className="title">{project.title}</span>
-              <span className="num muted">{Math.round(v.progress * 100)}%</span>
+      {groups.map((group) => (
+        <section key={group.key || 'ungrouped'}>
+          {showHeadings ? (
+            <div className="section-label">
+              {group.label || 'Ungrouped'}
+              <span style={{ opacity: 0.6 }}> · {group.items.length}</span>
             </div>
-            <div className="meta">
-              {v.current ? `Now: ${v.current.title}` : 'All phases complete'}
-              {v.estimatedHours > 0 ? ` · ${v.estimatedHours}h estimated` : ''}
-            </div>
-            <div className="progress">
-              <i style={{ width: `${v.progress * 100}%`, background: project.colorHex }} />
-            </div>
-          </button>
-        )
-      })}
+          ) : null}
+          {group.items.map((project) => {
+            const v = projectView(s, project)
+            return (
+              <button
+                key={project.id}
+                className="row"
+                style={{ display: 'block', opacity: project.isArchived ? 0.5 : 1 }}
+                onClick={() => setOpenId(project.id)}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span className="title">{project.title}</span>
+                  <span className="num muted">{Math.round(v.progress * 100)}%</span>
+                </div>
+                <div className="meta">
+                  {v.current ? `Now: ${v.current.title}` : 'All phases complete'}
+                  {v.estimatedHours > 0 ? ` · ${v.estimatedHours}h estimated` : ''}
+                </div>
+                <div className="progress">
+                  <i style={{ width: `${v.progress * 100}%`, background: project.colorHex }} />
+                </div>
+              </button>
+            )
+          })}
+        </section>
+      ))}
 
       <button className="fab" onClick={() => setCreating(true)} aria-label="New project">
         +
@@ -97,6 +111,7 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
         <i style={{ width: `${v.progress * 100}%`, background: project.colorHex }} />
       </div>
       <div className="muted" style={{ fontSize: 12.5 }}>
+        {project.group ? `${project.group} · ` : ''}
         Weighted by estimated hours{v.estimatedHours > 0 ? ` · ${v.estimatedHours}h total` : ''}
         {project.targetDate ? ` · target ${new Date(project.targetDate).toLocaleDateString()}` : ''}
       </div>
@@ -174,16 +189,22 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
 }
 
 function ProjectEditor({ project, onClose }: { project: Project | null; onClose: () => void }) {
+  const s = useSnapshot()
   const store = useStore()
   const [title, setTitle] = useState(project?.title ?? '')
+  const [group, setGroup] = useState(project?.group ?? '')
   const [notes, setNotes] = useState(project?.notes ?? '')
   const [target, setTarget] = useState(project?.targetDate?.slice(0, 10) ?? '')
+
+  const existing = projectGroupNames(s)
+  const inGroup = (name: string): boolean => group.trim().toLocaleLowerCase() === name.toLocaleLowerCase()
 
   const save = (): void => {
     const trimmed = title.trim()
     if (!trimmed) return
     const patch = {
       title: trimmed,
+      group,
       notes,
       targetDate: target ? new Date(`${target}T12:00:00`).toISOString() : null,
     }
@@ -197,6 +218,37 @@ function ProjectEditor({ project, onClose }: { project: Project | null; onClose:
       <div className="field">
         <label htmlFor="p-title">Title</label>
         <input id="p-title" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+
+      <div className="field">
+        <label htmlFor="p-group">Group</label>
+        {existing.length > 0 ? (
+          <div className="seg" style={{ marginBottom: 7 }}>
+            <button className={`pill${group.trim() === '' ? ' active' : ''}`} onClick={() => setGroup('')}>
+              None
+            </button>
+            {existing.map((name) => (
+              <button
+                key={name}
+                className={`pill${inGroup(name) ? ' active' : ''}`}
+                onClick={() => setGroup(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <input
+          id="p-group"
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          placeholder="house, dev, travel…"
+        />
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          {existing.length > 0
+            ? 'Tap one above, or type a new name. Capitalisation does not make a new group.'
+            : 'Type a name to start a group. Others can join it later.'}
+        </div>
       </div>
       <div className="field">
         <label htmlFor="p-notes">Notes</label>

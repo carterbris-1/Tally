@@ -18,7 +18,15 @@ export interface EffectiveGoal {
   value: number
 }
 
-/** Checkbox tasks are implicitly `atLeast 1`; a task with no goal value just tracks. */
+/**
+ * Checkbox tasks are implicitly `atLeast 1`.
+ *
+ * A direction with no value falls back to plain tracking, where any activity completes
+ * the day. That is a **legacy path, not a design**: it is how a task saved before the
+ * editor required a target behaves, and it is why one second of a timer could once earn
+ * a tick. New tasks cannot reach this state — the editor refuses to save a direction
+ * without a number — and the UI labels any that do as "no target set".
+ */
 export function effectiveGoal(kind: TaskKind, direction: GoalDirection, value: number | null): EffectiveGoal {
   if (kind === 'checkbox') return { direction: 'atLeast', value: 1 }
   if (direction === 'none' || value === null) return { direction: 'none', value: 0 }

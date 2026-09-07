@@ -7,6 +7,7 @@ import { isScheduled } from '../core/schedule'
 import { isRunning } from '../core/sessionSplit'
 import { currentPhase, weightedProgress } from '../core/progress'
 import { plannedEndMinute } from '../core/repack'
+import { groupByName, groupNames, type Group } from '../core/grouping'
 import type { Block, Entry, Phase, Project, Task, Todo } from '../core/types'
 import type { Snapshot } from './store'
 
@@ -147,6 +148,12 @@ export function projectView(s: Snapshot, project: Project): ProjectView {
 
 export const todosForPhase = (s: Snapshot, phaseId: string): Todo[] =>
   liveTodos(s).filter((t) => t.phaseId === phaseId)
+
+/** Projects under their group headings, ungrouped last. */
+export const groupedProjects = (s: Snapshot): Array<Group<Project>> => groupByName(liveProjects(s))
+
+/** Existing group names, for the picker's suggestions. */
+export const projectGroupNames = (s: Snapshot): string[] => groupNames(liveProjects(s))
 
 // ------------------------------------------------------------------ running
 
