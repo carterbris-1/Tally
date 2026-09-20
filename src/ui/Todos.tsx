@@ -14,7 +14,8 @@ export function Todos() {
   const open = openTodos(s)
   const overdue = open.filter((t) => isOverdue(t, now))
   const rest = open.filter((t) => !isOverdue(t, now))
-  const done = doneTodos(s).slice(0, 20)
+  const allDone = doneTodos(s)
+  const done = allDone.slice(0, 20)
 
   return (
     <div className="wrap">
@@ -50,7 +51,7 @@ export function Todos() {
             <TodoRow key={t.id} todo={t} onEdit={setEditing} />
           ))}
           <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            Kept for {s.settings.todoRetentionDays} days, then cleared.
+            Cleared automatically after {s.settings.todoRetentionDays} days.
           </div>
         </>
       ) : null}
@@ -63,13 +64,13 @@ export function Todos() {
         <TodoEditor todo={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       ) : null}
 
-      {open.length > 0 ? (
+      {allDone.length > 0 ? (
         <button
           className="pill ghost"
           style={{ marginTop: 16 }}
-          onClick={() => void store.purgeCompletedTodos()}
+          onClick={() => void store.clearCompletedTodos()}
         >
-          Clear old completed
+          Clear {allDone.length} completed
         </button>
       ) : null}
     </div>

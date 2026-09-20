@@ -5,6 +5,7 @@ import type { Task } from '../core/types'
 import { liveTasks, streaksFor, taskToday, type TaskToday } from '../db/selectors'
 import { formatAmount, formatClock, formatDayKeyLong, formatGoal } from './format'
 import { useNow, useSnapshot, useStore } from './hooks'
+import { DailyRead } from './DailyRead'
 import { RunningBar } from './RunningBar'
 import { Ring } from './shared/Ring'
 import { Sheet } from './shared/Sheet'
@@ -22,9 +23,10 @@ export function Today({ onOpenTask, onNewTask }: Props) {
   const dayKey = store.todayKey(now)
   const [logging, setLogging] = useState<Task | null>(null)
 
+  const week = store.weekStartDay
   const views = liveTasks(s).map((task) => ({
-    ...taskToday(s, task, dayKey, cfg, now),
-    streak: streaksFor(s, task, cfg, now).current,
+    ...taskToday(s, task, dayKey, cfg, now, week),
+    streak: streaksFor(s, task, cfg, now, week).current,
   }))
   const scheduled = views.filter((v) => v.scheduled && !v.skipped)
   const resting = views.filter((v) => !v.scheduled || v.skipped)
@@ -37,6 +39,8 @@ export function Today({ onOpenTask, onNewTask }: Props) {
       </header>
 
       <RunningBar />
+
+      <DailyRead dayKey={dayKey} />
 
       {views.length === 0 ? (
         <div className="empty">
@@ -84,13 +88,31 @@ function TaskRow({ view, dayKey, now, onOpen, onLog }: RowProps) {
 
   const meta = (): React.ReactNode => {
     if (view.skipped) return 'Skipped'
-    if (task.kind === 'checkbox') return describeSchedule(task.schedule)
+    if (task.kind === 'checkbox' && task.goalPeriod === 'day') return describeSchedule(task.schedule)
     const value = running ? formatClock(sessionSeconds(running.startedAt, running.endedAt, now)) : formatAmount(task, total)
-    if (!goal) return <span className="num">{value}</span>
+    // a weekly goal is silent for days at a time, so the week has to be spelled out
+    const left =
+      view.daysLeft !== null ? (
+        <>
+          {' · '}
+          {view.daysLeft} {view.daysLeft === 1 ? 'day' : 'days'} left
+        </>
+      ) : null
+    const weekly = view.daysLeft !== null && view.goalValue > 0
+    if (!goal) {
+      return (
+        <>
+          <span className="num">{value}</span>
+          {left}
+        </>
+      )
+    }
     return (
       <>
-        <span className="num">{value}</span> · {goal}
+        <span className="num">{value}</span>
+        {weekly ? <> of {formatAmount(task, view.goalValue)} this week</> : <> · {goal}</>}
         {isLimit ? <> · <span className={exceeded ? 'over' : 'on'}>{exceeded ? 'exceeded' : 'on track'}</span></> : null}
+        {left}
       </>
     )
   }

@@ -38,8 +38,9 @@ export function TaskDetail({ taskId, onBack, onEdit }: Props) {
     )
   }
 
-  const view = taskToday(s, task, dayKey, cfg, now)
-  const streaks = streaksFor(s, task, cfg, now)
+  const view = taskToday(s, task, dayKey, cfg, now, store.weekStartDay)
+  const streaks = streaksFor(s, task, cfg, now, store.weekStartDay)
+  const weekly = task.goalPeriod === 'week'
   const cells = heatmap(s, task, cfg, now, HEATMAP_DAYS, dayKey)
   const totals = dayTotalsFor(s, task, cfg, now)
   const entries = taskEntries(s, task.id)
@@ -69,7 +70,8 @@ export function TaskDetail({ taskId, onBack, onEdit }: Props) {
           <div>
             <h1 style={{ fontSize: 22 }}>{task.title}</h1>
             <div className="sub">
-              {describeSchedule(task.schedule)} · {formatAmount(task, view.total)} today
+              {describeSchedule(task.schedule)} · {formatAmount(task, view.total)}{' '}
+            {weekly ? 'this week' : 'today'}
             </div>
           </div>
         </div>
@@ -78,7 +80,7 @@ export function TaskDetail({ taskId, onBack, onEdit }: Props) {
       <div className="stat-grid">
         <div className="stat">
           <div className="v num">{streaks.current}</div>
-          <div className="k">Current streak</div>
+          <div className="k">Current {weekly ? 'week streak' : 'streak'}</div>
         </div>
         <div className="stat">
           <div className="v num">{streaks.longest}</div>

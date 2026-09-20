@@ -8,15 +8,16 @@ same streak.
 React + TypeScript PWA. Local-first IndexedDB, optional Supabase sync, no server of
 your own. Install it to your home screen and it behaves like an app.
 
-- `tally-spec.md` — the tracker
-- `tally-planning-spec.md` — day plans and phased projects
+- `specs/tally-spec.md` — the tracker
+- `specs/tally-planning-spec.md` — day plans and phased projects
+- `specs/tally-next-spec.md` — weekly goals, stats, the daily read
 
 ## Running it
 
 ```sh
 npm install
 npm run dev        # http://localhost:5173
-npm run test       # 98 tests
+npm run test       # 160 tests
 npm run build
 ```
 

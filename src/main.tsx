@@ -15,6 +15,9 @@ store
     console.error('Tally failed to open its database', err)
   })
   .finally(() => {
+    // retention is a policy, not a button — it runs once per launch
+    void store.purgeCompletedTodos()
+    void store.fillReadBuffer()
     startSyncLoop()
     root.render(
       <StrictMode>

@@ -42,6 +42,7 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
@@ -84,7 +85,8 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 6px 12px;
+  flex-wrap: wrap;
   margin: 6px 0 18px;
 }
 .screen-head h1 {
@@ -92,8 +94,14 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
   font-size: 27px;
   letter-spacing: -0.025em;
   font-weight: 680;
+  min-width: 0;
 }
-.screen-head .sub { color: var(--muted); font-size: 13px; }
+.screen-head .sub {
+  color: var(--muted);
+  font-size: 13px;
+  flex: none;
+  text-align: right;
+}
 
 .section-label {
   font-size: 11px;
@@ -109,6 +117,8 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
 
 .tabs {
   display: flex;
+  position: relative;
+  z-index: 10; /* below .scrim (40) — a modal must cover navigation, not duck under it */
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: saturate(1.6) blur(18px);
   border-top: 1px solid var(--line);
@@ -179,6 +189,7 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
 }
 .row.neutral { opacity: 0.5; }
 .row .body { flex: 1; min-width: 0; }
+.seg { flex-wrap: wrap; }
 .row .title {
   font-weight: 560;
   letter-spacing: -0.012em;
@@ -317,7 +328,11 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
   border-radius: 18px 18px 0 0;
   border: 1px solid var(--line);
   padding: 16px 16px calc(18px + env(safe-area-inset-bottom));
-  max-height: 88vh; overflow-y: auto;
+  /* dvh, not vh: on mobile Safari vh is the LARGE viewport — the height with the URL
+     bar collapsed — so 88vh claims space that is not on screen. */
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 @media (min-width: 700px) {
   .scrim { align-items: center; }
@@ -327,7 +342,14 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
 .field { margin-bottom: 13px; }
 .field > label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; font-weight: 560; }
 .seg { display: flex; gap: 5px; flex-wrap: wrap; }
-.sheet-actions { display: flex; gap: 9px; margin-top: 18px; }
+.sheet-actions {
+  display: flex; gap: 9px;
+  margin: 18px -16px calc(-18px - env(safe-area-inset-bottom));
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--line-soft);
+}
 .btn {
   flex: 1; padding: 12px; border-radius: var(--radius-sm);
   background: var(--accent); color: #fff; font-weight: 600; text-align: center;
@@ -392,6 +414,37 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
   border: 1px solid var(--accent);
 }
 
+/* Overlapping blocks share a row, each lane a column of it. */
+.block-cluster { position: relative; width: 100%; }
+.block-cluster .block-cell { position: absolute; }
+
+/*
+ * Sharing a row costs width, so the type tightens as lanes are added.
+ *
+ * At 360px the slot column is about 268px wide. Split three ways that is 89px a lane,
+ * and the padding and borders take 18 of them — so the title has ~71px to work with and
+ * 13.5px type shows barely half a word before the ellipsis.
+ */
+.block-cluster:not([data-lanes='1']) .block-cell { padding-left: 7px; padding-right: 7px; }
+.block-cluster:not([data-lanes='1']) .cell-title { font-size: 12px; }
+.block-cluster:not([data-lanes='1']):not([data-lanes='2']) .cell-title {
+  font-size: 11px;
+  letter-spacing: -0.02em;
+}
+
+/*
+ * Every logged block carries a tick, and in a three-lane slot the glyph plus its space
+ * was taking about a fifth of the room the title had to work with. Colour does the same
+ * job at a smaller size, and the margin tightens further as lanes are added.
+ */
+.cell-title .cell-tick { color: var(--good); font-size: 0.9em; margin-right: 4px; }
+.block-cluster:not([data-lanes='1']) .cell-tick { margin-right: 2px; }
+
+/* A block one slot tall is 20px, less 10px of padding: 13.5px type does not fit in 10. */
+.block-cell.short { padding-top: 2px; padding-bottom: 2px; }
+.block-cell.short .cell-title { font-size: 11.5px; line-height: 1.15; }
+.block-cell.short .cell-meta { font-size: 10.5px; }
+
 .block-cell {
   width: 100%;
   display: flex;
@@ -415,3 +468,74 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
   text-overflow: ellipsis;
 }
 .block-cell .cell-meta { color: var(--muted); font-size: 11.5px; flex: none; }
+
+/* ------------------------------------------------- time-of-day histogram */
+
+.hours {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  align-items: end;
+  gap: 2px;
+  height: 96px;
+}
+.hours .hour {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  position: relative;
+}
+.hours .hour > i {
+  display: block;
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  min-height: 2px;
+}
+.hours .hour > span {
+  position: absolute;
+  bottom: -15px;
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hours { margin-bottom: 16px; }
+
+/* six tabs is the most this bar can hold; give the labels room on a small phone */
+@media (max-width: 400px) {
+  .tabs button { font-size: 9.5px; padding-left: 2px; padding-right: 2px; letter-spacing: -0.01em; }
+}
+
+/* ----------------------------------------------------------- daily read */
+
+.read-card {
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px 14px 14px;
+  margin-bottom: 14px;
+}
+.read-card.empty-read { background: var(--surface); }
+.read-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 7px; flex-wrap: wrap;
+}
+.read-head .kind {
+  font-size: 10.5px; font-weight: 660; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--accent);
+}
+.read-head .muted { font-size: 11.5px; }
+.read-title {
+  display: block;
+  font-size: 16px; font-weight: 600; letter-spacing: -0.018em;
+  line-height: 1.32; color: var(--text); text-decoration: none;
+}
+.read-title:hover { text-decoration: underline; }
+/* Enough of the abstract to decide against it without opening it. */
+.read-blurb {
+  margin: 7px 0 0;
+  font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden;
+}

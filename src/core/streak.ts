@@ -7,6 +7,7 @@
  */
 
 import { addDayKey, compareDayKeys, dayKeyFor, isDayEnded, type DayConfig } from './dayKey'
+import { addWeekKey, daysInWeek, isWeekEnded, weekKeyFor } from './weekKey'
 import { isScheduled } from './schedule'
 import type { Entry, GoalDirection, Task, TaskKind } from './types'
 import { dailyTotals, skippedDays } from './aggregate'
@@ -60,6 +61,23 @@ export function evaluateDay(input: {
       if (total > 0) return 'complete'
       return dayEnded ? 'incomplete' : 'unresolved'
   }
+}
+
+/**
+ * The same rule set over a week's total instead of a day's.
+ *
+ * Every asymmetry carries over intact, and the `atMost` one gets sharper: a weekly limit
+ * stays unresolved for up to six days, which is why the UI has to show week-to-date
+ * consumption or the mode reads as broken.
+ */
+export function evaluateWeek(input: {
+  goal: EffectiveGoal
+  total: number
+  isSkip: boolean
+  scheduled: boolean
+  weekEnded: boolean
+}): DayStatus {
+  return evaluateDay({ ...input, dayEnded: input.weekEnded })
 }
 
 export interface StreakResult {
@@ -130,6 +148,87 @@ export function computeStreaks(
   }
 
   return { current, longest, totalCompletions, statuses }
+}
+
+/**
+ * Streaks for a task whose goal is weekly.
+ *
+ * Consecutive *weeks*, walking back from the current one. `statuses` is keyed by week key
+ * — the dayKey of each week's first day — not by day, so callers must not feed it to the
+ * daily heatmap.
+ *
+ * A week counts as scheduled if any of its days is; as skipped only if every scheduled
+ * day in it is skipped. Skipping Monday does not excuse the week.
+ */
+export function computeWeeklyStreaks(
+  task: Pick<Task, 'kind' | 'goalDirection' | 'goalValue' | 'schedule' | 'createdAt'>,
+  entries: Entry[],
+  cfg: DayConfig,
+  weekStartDay: number,
+  now: Date | number = Date.now(),
+): StreakResult {
+  const goal = effectiveGoal(task.kind, task.goalDirection, task.goalValue)
+  const totals = dailyTotals(entries, task.kind, cfg, now)
+  const skips = skippedDays(entries)
+  const thisWeek = weekKeyFor(dayKeyFor(now, cfg), weekStartDay)
+
+  let firstDay = dayKeyFor(Date.parse(task.createdAt), cfg)
+  for (const key of [...totals.keys(), ...skips]) {
+    if (compareDayKeys(key, firstDay) < 0) firstDay = key
+  }
+  const firstWeek = weekKeyFor(firstDay, weekStartDay)
+
+  const statuses = new Map<string, DayStatus>()
+  const statusAt = (weekKey: string): DayStatus => {
+    const cached = statuses.get(weekKey)
+    if (cached) return cached
+    const days = daysInWeek(weekKey)
+    const scheduledDays = days.filter((d) => isScheduled(task.schedule, d))
+    const s = evaluateWeek({
+      goal,
+      total: days.reduce((sum, d) => sum + (totals.get(d) ?? 0), 0),
+      isSkip: scheduledDays.length > 0 && scheduledDays.every((d) => skips.has(d)),
+      scheduled: scheduledDays.length > 0,
+      weekEnded: isWeekEnded(weekKey, cfg, now),
+    })
+    statuses.set(weekKey, s)
+    return s
+  }
+
+  let longest = 0
+  let run = 0
+  let totalCompletions = 0
+  for (let w = firstWeek; compareDayKeys(w, thisWeek) <= 0; w = addWeekKey(w, 1)) {
+    const s = statusAt(w)
+    if (s === 'complete') {
+      run += 1
+      totalCompletions += 1
+      if (run > longest) longest = run
+    } else if (s === 'incomplete') {
+      run = 0
+    }
+  }
+
+  let current = 0
+  for (let w = thisWeek; compareDayKeys(w, firstWeek) >= 0; w = addWeekKey(w, -1)) {
+    const s = statusAt(w)
+    if (s === 'complete') current += 1
+    else if (s === 'incomplete') break
+  }
+
+  return { current, longest, totalCompletions, statuses }
+}
+
+/** Week-to-date total, for the progress a weekly task shows before it resolves. */
+export function weekTotal(
+  entries: Entry[],
+  kind: TaskKind,
+  weekKey: string,
+  cfg: DayConfig,
+  now: Date | number = Date.now(),
+): number {
+  const totals = dailyTotals(entries, kind, cfg, now)
+  return daysInWeek(weekKey).reduce((sum, d) => sum + (totals.get(d) ?? 0), 0)
 }
 
 /** How a limit task reads today: never "complete", only on track or blown. */

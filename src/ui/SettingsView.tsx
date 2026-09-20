@@ -3,6 +3,8 @@ import { archivedTasks, orphans } from '../db/selectors'
 import { getAll, putMany, type StoreName } from '../db/idb'
 import { useNow, useSnapshot, useStore } from './hooks'
 import { dayKeyFor } from '../core/dayKey'
+import { TOPICS } from '../core/reading'
+import { liveTasks } from '../db/selectors'
 import { formatDayKeyLong } from './format'
 import { SyncPanel } from './SyncPanel'
 
@@ -193,6 +195,65 @@ export function SettingsView() {
           </label>
         </div>
         {message ? <div className="muted" style={{ fontSize: 12.5, marginTop: 9 }}>{message}</div> : null}
+      </div>
+
+      <div className="section-label">Daily read</div>
+      <div className="card" style={{ padding: 14 }}>
+        <div className="field">
+          <label>Topics</label>
+          <div className="seg">
+            {TOPICS.map((topic) => {
+              const weight = s.settings.readTopics[topic] ?? 0
+              return (
+                <button
+                  key={topic}
+                  className={`pill${weight > 0 ? ' active' : ''}`}
+                  onClick={() =>
+                    void store.updateSettings({
+                      readTopics: { ...s.settings.readTopics, [topic]: weight > 0 ? 0 : 1 },
+                    })
+                  }
+                >
+                  {topic}
+                </button>
+              )
+            })}
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            Switched-off topics are never offered. Turn them all off and there is nothing
+            left to pick from.
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="read-mins">Preferred length (minutes)</label>
+          <input
+            id="read-mins"
+            type="number"
+            min={5}
+            value={s.settings.readMinutesMax}
+            onChange={(e) => void store.updateSettings({ readMinutesMax: Number(e.target.value) || 30 })}
+          />
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            A guide, not a rule — a longer piece wins over offering you the same thing twice.
+          </div>
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label htmlFor="read-task">Opening it starts</label>
+          <select
+            id="read-task"
+            value={s.settings.readLinkedTaskId ?? ''}
+            onChange={(e) => void store.updateSettings({ readLinkedTaskId: e.target.value || null })}
+          >
+            <option value="">Nothing</option>
+            {liveTasks(s)
+              .filter((t) => t.kind === 'timer')
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title}
+                </option>
+              ))}
+          </select>
+        </div>
       </div>
 
       <div className="section-label">To-dos</div>

@@ -22,6 +22,7 @@ const TABLES: Array<[StoreName, string]> = [
   ['blocks', 'blocks'],
   ['projects', 'projects'],
   ['phases', 'phases'],
+  ['dailyReads', 'daily_reads'],
 ]
 
 interface Syncable {

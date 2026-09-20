@@ -4,6 +4,7 @@ import {
   dayEndInstant,
   dayKeyFor,
   dayLengthMs,
+  dayMinuteFor,
   dayStartInstant,
   eachDayKey,
   instantForDayMinute,
@@ -95,5 +96,67 @@ describe('day key arithmetic', () => {
     expect(isDayEnded('2026-09-01', NY, ny('2026-09-01T23:00'))).toBe(false)
     expect(isDayEnded('2026-09-01', NY, ny('2026-09-02T03:59'))).toBe(false)
     expect(isDayEnded('2026-09-01', NY, ny('2026-09-02T04:00'))).toBe(true)
+  })
+})
+
+describe('dayMinuteFor', () => {
+  it('is the exact inverse of instantForDayMinute, on days of every length', () => {
+    for (const key of ['2026-09-01', '2026-03-07', '2026-10-31']) {
+      for (const minute of [0, 1, 60, 359, 360, 720, 1200, 1380, 1439, 1440]) {
+        expect(dayMinuteFor(instantForDayMinute(key, minute, NY), key, NY)).toBe(minute)
+      }
+    }
+  })
+
+  it('reads the wall clock, so 14:05 is the same minute whatever the day is worth', () => {
+    const normal = dayMinuteFor(ny('2026-09-01T14:05'), '2026-09-01', NY)
+    const short = dayMinuteFor(ny('2026-03-07T14:05'), '2026-03-07', NY)
+    const long = dayMinuteFor(ny('2026-10-31T14:05'), '2026-10-31', NY)
+    expect(normal).toBe(605) // 14:05 is 10h05 after a 04:00 start
+    expect(short).toBe(605)
+    expect(long).toBe(605)
+  })
+
+  it('does not count elapsed time across the hour the clocks go back', () => {
+    // 03:00 on the 2nd is 24 real hours after the 25-hour day began, but the wall
+    // clock says 23, and a block belongs where the wall clock puts it
+    const at = ny('2026-11-01T03:00')
+    const elapsed = (at.getTime() - dayStartInstant('2026-10-31', NY).getTime()) / 60_000
+    expect(elapsed).toBe(1440) // what the tempting subtraction would have returned
+    expect(dayMinuteFor(at, '2026-10-31', NY)).toBe(1380)
+  })
+
+  it('does not count elapsed time across the hour the clocks go forward', () => {
+    const at = ny('2026-03-08T03:00')
+    const elapsed = (at.getTime() - dayStartInstant('2026-03-07', NY).getTime()) / 60_000
+    expect(elapsed).toBe(1320)
+    expect(dayMinuteFor(at, '2026-03-07', NY)).toBe(1380)
+  })
+
+  it('lands inside 0..1440 for any instant, paired with its own day key', () => {
+    // walk a DST weekend in ten-minute steps; every instant must sit within its day
+    let t = ny('2026-10-30T12:00').getTime()
+    const end = ny('2026-11-02T12:00').getTime()
+    while (t < end) {
+      const minute = dayMinuteFor(t, dayKeyFor(t, NY), NY)
+      expect(minute).toBeGreaterThanOrEqual(0)
+      expect(minute).toBeLessThan(1440)
+      t += 10 * 60_000
+    }
+  })
+
+  it('goes negative for an instant before the day it is asked about began', () => {
+    // 02:00 belongs to the previous tally day; the sign says so rather than wrapping
+    expect(dayMinuteFor(ny('2026-09-01T02:00'), '2026-09-01', NY)).toBe(-120)
+    expect(dayMinuteFor(ny('2026-09-01T02:00'), '2026-08-31', NY)).toBe(1320)
+  })
+
+  it('maps both passes of a repeated hour onto the same minute', () => {
+    // 01:30 happens twice on 2026-11-01. There is one minute index for it, so the
+    // second pass is indistinguishable from the first once stored.
+    const first = ny('2026-11-01T01:30')
+    const second = new Date(first.getTime() + HOUR)
+    expect(hhmm(second)).toBe('01:30')
+    expect(dayMinuteFor(second, '2026-10-31', NY)).toBe(dayMinuteFor(first, '2026-10-31', NY))
   })
 })

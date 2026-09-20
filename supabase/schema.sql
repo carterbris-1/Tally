@@ -14,7 +14,7 @@ create extension if not exists "pgcrypto";
 do $$
 declare t text;
 begin
-  foreach t in array array['tasks', 'entries', 'todos', 'day_plans', 'blocks', 'projects', 'phases', 'settings']
+  foreach t in array array['tasks', 'entries', 'todos', 'day_plans', 'blocks', 'projects', 'phases', 'daily_reads', 'settings']
   loop
     execute format($f$
       create table if not exists public.%I (

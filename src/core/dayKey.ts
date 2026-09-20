@@ -193,6 +193,35 @@ export function instantForDayMinute(dayKey: string, minute: number, cfg: DayConf
   )
 }
 
+/** Whole days between two civil dates. UTC only as a calendar, so no DST is involved. */
+function civilDayDiff(from: CivilDate, to: CivilDate): number {
+  const a = Date.UTC(from.year, from.month - 1, from.day)
+  const b = Date.UTC(to.year, to.month - 1, to.day)
+  return Math.round((b - a) / 86_400_000)
+}
+
+/**
+ * Minutes since a day's start, for an instant. The inverse of `instantForDayMinute`.
+ *
+ * The tempting one-liner is `(instant - dayStartInstant(dayKey)) / 60_000`, and it is
+ * wrong twice a year. That measures *elapsed* time, while `plannedStartMinute` is a
+ * wall-clock offset: on the 25-hour day the clocks go back, 03:00 the next morning is
+ * 24 real hours after the 04:00 start but belongs at minute 1380, not 1440. Every block
+ * logged after a transition would sit an hour off, and 1440 would fall outside the day
+ * besides. So this counts civil days and reads the wall clock, like everything else here.
+ *
+ * The result is always in `0..1440` for an instant inside the day, whatever the day's
+ * real length — the repeated hour maps twice onto the same minute, and the skipped hour
+ * maps onto nothing. `civilToInstant` resolves that ambiguity to the first occurrence,
+ * so `minute -> instant -> minute` round-trips exactly, while an instant in the second
+ * pass of a repeated hour comes back as the first.
+ */
+export function dayMinuteFor(instant: Date | number, dayKey: string, cfg: DayConfig): number {
+  const p = zonedParts(instant, cfg.timeZone)
+  const days = civilDayDiff(parseDayKey(dayKey), p)
+  return days * 1440 + p.hour * 60 + p.minute - cfg.dayStartMinute
+}
+
 /** "04:00" for 240. Rendering helper. */
 export function formatDayMinute(minute: number, cfg: DayConfig): string {
   const total = ((cfg.dayStartMinute + minute) % 1440 + 1440) % 1440

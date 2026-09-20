@@ -2,7 +2,15 @@
 
 import { addDayKey, type DayConfig } from '../core/dayKey'
 import { dailyTotals, entriesForOwner, skippedDays } from '../core/aggregate'
-import { computeStreaks, effectiveGoal, evaluateDay, type DayStatus, type StreakResult } from '../core/streak'
+import {
+  computeStreaks,
+  computeWeeklyStreaks,
+  effectiveGoal,
+  evaluateDay,
+  type DayStatus,
+  type StreakResult,
+} from '../core/streak'
+import { daysInWeek, daysLeftInWeek, isWeekEnded, weekKeyFor } from '../core/weekKey'
 import { isScheduled } from '../core/schedule'
 import { isRunning } from '../core/sessionSplit'
 import { currentPhase, weightedProgress } from '../core/progress'
@@ -25,6 +33,7 @@ export const blockEntries = (s: Snapshot, blockId: string): Entry[] => entriesFo
 
 export interface TaskToday {
   task: Task
+  /** Today's total for a daily task, week-to-date for a weekly one. */
   total: number
   goalValue: number
   status: DayStatus
@@ -33,15 +42,48 @@ export interface TaskToday {
   running: Entry | null
   /** 0-1, clamped. For a limit task this is consumption of the allowance. */
   fraction: number
+  /** null for a daily task; days remaining in the week for a weekly one. */
+  daysLeft: number | null
 }
 
-export function taskToday(s: Snapshot, task: Task, dayKey: string, cfg: DayConfig, now: number): TaskToday {
+export function taskToday(
+  s: Snapshot,
+  task: Task,
+  dayKey: string,
+  cfg: DayConfig,
+  now: number,
+  weekStartDay = 1,
+): TaskToday {
   const entries = taskEntries(s, task.id)
-  const total = dailyTotals(entries, task.kind, cfg, now).get(dayKey) ?? 0
+  const totals = dailyTotals(entries, task.kind, cfg, now)
+  const skips = skippedDays(entries)
   const goal = effectiveGoal(task.kind, task.goalDirection, task.goalValue)
-  const scheduled = isScheduled(task.schedule, dayKey)
-  const skipped = skippedDays(entries).has(dayKey)
-  const status = evaluateDay({ goal, total, isSkip: skipped, scheduled, dayEnded: false })
+  const weekly = task.goalPeriod === 'week'
+
+  let total: number
+  let scheduled: boolean
+  let skipped: boolean
+  let ended: boolean
+  let daysLeft: number | null = null
+
+  if (weekly) {
+    // the period is the week, so everything below is measured over its seven days
+    const weekKey = weekKeyFor(dayKey, weekStartDay)
+    const days = daysInWeek(weekKey)
+    const scheduledDays = days.filter((d) => isScheduled(task.schedule, d))
+    total = days.reduce((sum, d) => sum + (totals.get(d) ?? 0), 0)
+    scheduled = scheduledDays.length > 0
+    skipped = scheduledDays.length > 0 && scheduledDays.every((d) => skips.has(d))
+    ended = isWeekEnded(weekKey, cfg, now)
+    daysLeft = daysLeftInWeek(weekKey, dayKey)
+  } else {
+    total = totals.get(dayKey) ?? 0
+    scheduled = isScheduled(task.schedule, dayKey)
+    skipped = skips.has(dayKey)
+    ended = false
+  }
+
+  const status = evaluateDay({ goal, total, isSkip: skipped, scheduled, dayEnded: ended })
   const running = entries.find((e) => isRunning(e.startedAt, e.endedAt)) ?? null
   const denominator = goal.value > 0 ? goal.value : Math.max(total, 1)
   return {
@@ -53,11 +95,21 @@ export function taskToday(s: Snapshot, task: Task, dayKey: string, cfg: DayConfi
     skipped,
     running,
     fraction: Math.min(1, total / denominator),
+    daysLeft,
   }
 }
 
-export const streaksFor = (s: Snapshot, task: Task, cfg: DayConfig, now: number): StreakResult =>
-  computeStreaks(task, taskEntries(s, task.id), cfg, now)
+/** Days for a daily task, weeks for a weekly one. The statuses are keyed accordingly. */
+export const streaksFor = (
+  s: Snapshot,
+  task: Task,
+  cfg: DayConfig,
+  now: number,
+  weekStartDay = 1,
+): StreakResult =>
+  task.goalPeriod === 'week'
+    ? computeWeeklyStreaks(task, taskEntries(s, task.id), cfg, weekStartDay, now)
+    : computeStreaks(task, taskEntries(s, task.id), cfg, now)
 
 /** Heatmap data: status per day for the last `days` days, oldest first. */
 export function heatmap(s: Snapshot, task: Task, cfg: DayConfig, now: number, days: number, todayKey: string): Array<{ dayKey: string; status: DayStatus }> {

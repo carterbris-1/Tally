@@ -30,7 +30,7 @@ the sync watermarks both depend on it.
 
 ```sh
 npm run dev          # http://localhost:5173
-npm run test         # 98 tests, ~2s
+npm run test         # 160 tests, ~3s
 npm run test:watch   # while working in core/
 npm run typecheck    # strict, noUncheckedIndexedAccess
 npm run build        # tsc -b && vite build
@@ -170,6 +170,26 @@ boundary an hour off for eight months of it. Always an IANA zone name.
    matches the signed-in user.
 4. Signing out resets both watermarks on purpose, so a second account never inherits the
    first one's position.
+
+### Add a source to the daily read
+
+**Check CORS before writing a line of the adapter.** A static site can only call an
+endpoint that sends `Access-Control-Allow-Origin`; curl does not enforce it, so an API
+that works perfectly in the terminal can be dead in the browser:
+
+```sh
+curl -s -I -H "Origin: https://carterbris-1.github.io" "<the endpoint>" \
+  | grep -i access-control-allow-origin
+```
+
+No header, no adapter. arXiv was specced, passed every curl test, and failed exactly
+this — it is why the daily read uses OpenAlex and Crossref for papers. Verified working:
+`hn.algolia.com`, `api.openalex.org`, `api.crossref.org`. Verified not: `export.arxiv.org`
+(no header), `api.semanticscholar.org` (429s anonymous callers).
+
+Then: add the adapter to `src/db/readSources.ts` returning `Candidate[]` and `[]` on any
+failure, and add it to `fetchCandidates`. Nothing else changes — selection is pure and
+does not know where candidates came from.
 
 ### Add a screen
 

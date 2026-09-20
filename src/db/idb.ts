@@ -6,7 +6,7 @@
  */
 
 export const DB_NAME = 'tally'
-export const DB_VERSION = 1
+export const DB_VERSION = 2 // v2 added dailyReads
 
 export const STORES = [
   'tasks',
@@ -16,6 +16,7 @@ export const STORES = [
   'blocks',
   'projects',
   'phases',
+  'dailyReads',
   'meta',
 ] as const
 
@@ -29,6 +30,7 @@ const INDEXES: Partial<Record<StoreName, Array<{ name: string; keyPath: string |
   blocks: [{ name: 'byPlan', keyPath: 'planId' }],
   phases: [{ name: 'byProject', keyPath: 'projectId' }],
   dayPlans: [{ name: 'byDayKey', keyPath: 'dayKey' }],
+  dailyReads: [{ name: 'byDayKey', keyPath: 'dayKey' }],
   todos: [{ name: 'byPhase', keyPath: 'phaseId' }],
 }
 

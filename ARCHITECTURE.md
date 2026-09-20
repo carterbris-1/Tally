@@ -3,7 +3,7 @@
 Every file and every function in the repo, what it does, and why it is written that
 way. `README.md` is the introduction, `PLAYBOOK.md` is the runbooks, this is the map.
 
-Roughly 5,000 lines of TypeScript across 40 source and test files.
+Roughly 6,400 lines of TypeScript across 48 source and test files.
 
 ---
 
@@ -26,11 +26,13 @@ Roughly 5,000 lines of TypeScript across 40 source and test files.
 | Path | Lines | What it is |
 |---|---:|---|
 | **Docs** | | |
-| `tally-spec.md` | 356 | Product spec for the tracker |
-| `tally-planning-spec.md` | 259 | Product spec for day plans and projects |
+| `specs/tally-spec.md` | 356 | Product spec for the tracker |
+| `specs/tally-planning-spec.md` | 259 | Product spec for day plans and projects |
+| `specs/tally-next-spec.md` | 300 | Product spec for weekly goals, stats, the daily read |
 | `README.md` | — | Introduction, setup, the concepts worth knowing |
 | `PLAYBOOK.md` | 241 | Runbooks: deploy, debug, migrate, release |
 | `ARCHITECTURE.md` | — | This file |
+| `changes-scratch.md` | 178 | Working notes on the current uncommitted round |
 | **Pure logic** — no framework imports | | |
 | `src/core/types.ts` | 114 | Every domain type and `DEFAULT_SETTINGS` |
 | `src/core/dayKey.ts` | 200 | The 04:00 day boundary, timezones, DST |
@@ -41,12 +43,16 @@ Roughly 5,000 lines of TypeScript across 40 source and test files.
 | `src/core/progress.ts` | 36 | Estimate-weighted project progress |
 | `src/core/repack.ts` | 95 | Day-plan block layout |
 | `src/core/grouping.ts` | 47 | Grouping projects by name, case-insensitively |
+| `src/core/weekKey.ts` | 60 | Week identity, built from day keys |
+| `src/core/stats.ts` | 155 | Rollups: totals, completion counts, time-of-day |
+| `src/core/reading.ts` | 120 | Choosing the day's read, deterministically |
 | **Data layer** | | |
 | `src/db/idb.ts` | 117 | IndexedDB wrapper and schema versioning |
 | `src/db/store.ts` | 487 | The only place data is mutated |
 | `src/db/selectors.ts` | 164 | Derived reads over a snapshot |
 | `src/db/supabase.ts` | 20 | Lazily-created client, or `null` |
 | `src/db/sync.ts` | 191 | Push/pull, last-write-wins, auth |
+| `src/db/readSources.ts` | 185 | HN, OpenAlex, Crossref adapters |
 | **UI** | | |
 | `src/App.tsx` | 68 | Tab shell, routing, global sheets |
 | `src/main.tsx` | 32 | Boot: load, start sync, render, register SW |
@@ -61,14 +67,16 @@ Roughly 5,000 lines of TypeScript across 40 source and test files.
 | `src/ui/Projects.tsx` | 309 | Projects list, detail, phases |
 | `src/ui/SettingsView.tsx` | 206 | Settings, export/import, orphans |
 | `src/ui/SyncPanel.tsx` | 89 | Sign-in and sync status |
+| `src/ui/Stats.tsx` | 135 | Stats screen and histogram |
+| `src/ui/DailyRead.tsx` | 90 | The day's one thing to read |
 | `src/ui/RunningBar.tsx` | 35 | Pinned running timers |
 | `src/ui/shared/Ring.tsx` | 48 | SVG progress ring |
 | `src/ui/shared/Sheet.tsx` | 26 | Modal sheet |
 | `src/styles.css` | ~330 | The entire stylesheet |
 | **Tests** | | |
 | `tests/helpers.ts` | — | `wallClock`, `NY`, `hhmm` |
-| `tests/core/*.test.ts` | — | 82 tests over pure functions |
-| `tests/ui/smoke.test.tsx` | — | 16 tests driving the real app |
+| `tests/core/*.test.ts` | — | 133 tests over pure functions |
+| `tests/ui/*.test.tsx` | — | 27 tests driving the real app |
 | **Infrastructure** | | |
 | `supabase/schema.sql` | — | Tables and RLS policies |
 | `.github/workflows/deploy.yml` | — | Test, build, publish to Pages |
@@ -394,7 +402,7 @@ is still trivial, which is the only time it is cheap to do.
 
 **Constants**
 
-- `DB_NAME = 'tally'`, `DB_VERSION = 1`
+- `DB_NAME = 'tally'`, `DB_VERSION = 2` (v2 added `dailyReads`)
 - `STORES` — `tasks`, `entries`, `todos`, `dayPlans`, `blocks`, `projects`, `phases`,
   `meta`. `meta` is keyed by `key`; every other store by `id`.
 - `INDEXES` *(private)* — `entries.byOwner` on `[ownerType, ownerId]` and
@@ -817,7 +825,7 @@ Notable pieces: the `.tabs` bar becoming a sidebar at 900px; `.heat` as a 7-row
 
 ## 7. Tests
 
-**98 tests, ~2 seconds.** `npm run test`.
+**160 tests, ~3 seconds.** `npm run test`.
 
 ### `tests/helpers.ts`
 
@@ -828,7 +836,7 @@ Notable pieces: the `.tabs` bar becoming a sidebar at 900px; `.heat` as a 7-row
   caught it. Never construct a test instant by adding hours.
 - `hhmm(date, cfg?)` — formats an instant back to wall clock.
 
-### `tests/core/` — 82 tests
+### `tests/core/` — 133 tests
 
 | File | Covers |
 |---|---|
@@ -840,7 +848,7 @@ Notable pieces: the `.tabs` bar becoming a sidebar at 900px; `.heat` as a 7-row
 | `grouping.test.ts` (9) | Gathering by group, folding `Dev`/`dev`/`DEV` into one, trimming whitespace, ungrouped sorting last however the field is missing, alphabetical order, and stable order within a group |
 | `repack.test.ts` (10) | **Inserting a block shifts exactly what follows**, nothing before the point moves, no reordering or duration changes, returning only moved blocks, unknown ids, overflow rejection, gaps, overlaps, variance formatting |
 
-### `tests/ui/smoke.test.tsx` — 16 tests
+### `tests/ui/` — 27 tests
 
 jsdom + `fake-indexeddb`. Each starts from `clearAll()`, so titles stay unambiguous.
 

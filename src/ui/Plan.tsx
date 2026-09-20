@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { addDayKey } from '../core/dayKey'
+import { layoutBlocks } from '../core/lanes'
 import { BLOCK_GRANULARITY, MINUTES_PER_DAY } from '../core/repack'
 import type { Block } from '../core/types'
 import { blocksFor, planFor } from '../db/selectors'
@@ -15,11 +16,17 @@ const SLOT_PX = 22 // one slot's height, so the grid reads proportionally
 const snap = (minute: number): number => Math.round(minute / SLOT) * SLOT
 
 /**
- * The day plan is a canvas, not a list.
+ * The day's schedule is a canvas, not a list.
  *
  * The whole day is laid out as 15-minute slots. Tap one to start a block, tap a second
- * to stretch it across the range, name it. Nothing here starts a timer — a plan is what
- * you intend, and mixing intention with measurement was making both harder to read.
+ * to stretch it across the range, name it. Nothing here starts a timer: the screen is
+ * called the schedule, and it used to hold only what you intended, because mixing
+ * intention with measurement was making both harder to read. A task flagged
+ * `logToPlan` now drops finished sessions here too, so the canvas carries both — the
+ * one place that rule is deliberately broken.
+ *
+ * Blocks may overlap, and `layoutBlocks` draws overlapping ones as columns. Before that
+ * the grid assumed one block per start slot and silently dropped the rest.
  */
 export function Plan() {
   const s = useSnapshot()
@@ -34,12 +41,16 @@ export function Plan() {
   const plan = planFor(s, dayKey)
   const blocks = plan ? [...blocksFor(s, plan.id)].sort((a, b) => a.plannedStartMinute - b.plannedStartMinute) : []
 
-  // where each block starts, and every slot any block occupies
-  const byStart = new Map<number, Block>()
+  // Overlapping blocks are drawn side by side, so the unit the grid walks is a cluster
+  // of them rather than a single block. Clusters never touch, so they can be laid out
+  // one after another exactly as single blocks used to be.
+  const clusters = layoutBlocks(blocks)
+  const clusterAt = new Map(clusters.map((c) => [c.startMinute, c]))
+
+  // every slot any block occupies, counting all lanes
   const covered = new Set<number>()
   for (const b of blocks) {
     const start = snap(b.plannedStartMinute)
-    byStart.set(start, b)
     for (let m = start; m < start + Math.max(SLOT, snap(b.plannedMinutes)); m += SLOT) covered.add(m)
   }
 
@@ -61,24 +72,46 @@ export function Plan() {
   const rows: React.ReactNode[] = []
   let m = 0
   while (m < MINUTES_PER_DAY) {
-    const block = byStart.get(m)
-    if (block) {
-      const minutes = Math.max(SLOT, snap(block.plannedMinutes))
+    const cluster = clusterAt.get(m)
+    if (cluster) {
+      const { laneCount } = cluster
       rows.push(
-        <button
-          key={block.id}
-          className="block-cell"
-          style={{ height: (minutes / SLOT) * SLOT_PX - 2, borderLeftColor: block.colorHex }}
-          onClick={() => setEditing(block)}
+        <div
+          key={`cluster-${m}`}
+          className="block-cluster"
+          data-lanes={laneCount}
+          style={{ height: (cluster.minutes / SLOT) * SLOT_PX - 2 }}
         >
-          <span className="cell-title">
-            {block.completedAt ? '✓ ' : ''}
-            {block.title}
-          </span>
-          <span className="cell-meta num">{formatDuration(minutes * 60)}</span>
-        </button>,
+          {cluster.items.map(({ block, startMinute, minutes, lane }) => (
+            <button
+              key={block.id}
+              // one slot tall leaves about ten pixels inside the padding, which the
+              // normal type overflows; `short` is what the stylesheet tightens
+              className={`block-cell${minutes <= SLOT ? ' short' : ''}`}
+              style={{
+                top: ((startMinute - cluster.startMinute) / SLOT) * SLOT_PX,
+                height: (minutes / SLOT) * SLOT_PX - 2,
+                left: `${(lane / laneCount) * 100}%`,
+                // 2px short of the full lane, so neighbouring blocks have a seam
+                // between them instead of two borders touching
+                width: `calc(${100 / laneCount}% - 2px)`,
+                borderLeftColor: block.colorHex,
+              }}
+              onClick={() => setEditing(block)}
+            >
+              <span className="cell-title">
+                {block.completedAt ? <span className="cell-tick">✓</span> : null}
+                {block.title}
+              </span>
+              {/* the duration crowds out the title once a slot is shared */}
+              {laneCount === 1 ? (
+                <span className="cell-meta num">{formatDuration(minutes * 60)}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>,
       )
-      m += minutes
+      m = cluster.startMinute + cluster.minutes
       continue
     }
     if (covered.has(m)) {
@@ -94,7 +127,7 @@ export function Plan() {
         className={`slot${anchor === minute ? ' anchored' : ''}${minute % 60 === 0 ? ' hour' : ''}`}
         style={{ height: SLOT_PX - 2 }}
         onClick={() => tapSlot(minute)}
-        aria-label={`Plan ${formatDayMinute12(minute, cfg.dayStartMinute)}`}
+        aria-label={`Schedule ${formatDayMinute12(minute, cfg.dayStartMinute)}`}
       />,
     )
     m += SLOT
@@ -113,7 +146,7 @@ export function Plan() {
   return (
     <div className="wrap">
       <header className="screen-head">
-        <h1>Day plan</h1>
+        <h1>Schedule</h1>
         <span className="sub">{formatDayKeyLong(dayKey)}</span>
       </header>
 
@@ -132,11 +165,11 @@ export function Plan() {
       <div className="stat-grid">
         <div className="stat">
           <div className="v num">{formatDuration(plannedTotal * 60)}</div>
-          <div className="k">Planned</div>
+          <div className="k">Scheduled</div>
         </div>
         <div className="stat">
           <div className="v num">{formatDuration((MINUTES_PER_DAY - filledSlots * SLOT) * 60)}</div>
-          <div className="k">Unplanned</div>
+          <div className="k">Unscheduled</div>
         </div>
         <div className="stat">
           <div className="v num">

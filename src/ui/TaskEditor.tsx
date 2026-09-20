@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { GoalDirection, Schedule, Task, TaskKind } from '../core/types'
+import type { GoalDirection, GoalPeriod, Schedule, Task, TaskKind } from '../core/types'
 import { formatAmount, formatDuration, parseDurationToSeconds } from './format'
 import { useStore } from './hooks'
 import { Sheet } from './shared/Sheet'
@@ -17,6 +17,7 @@ export function TaskEditor({ task, onClose }: Props) {
   const [title, setTitle] = useState(task?.title ?? '')
   const [kind, setKind] = useState<TaskKind>(task?.kind ?? 'timer')
   const [direction, setDirection] = useState<GoalDirection>(task?.goalDirection ?? 'atLeast')
+  const [period, setPeriod] = useState<GoalPeriod>(task?.goalPeriod ?? 'day')
   const [goalText, setGoalText] = useState(() => {
     if (task?.goalValue == null) return ''
     return task.kind === 'timer' ? formatDuration(task.goalValue) : String(task.goalValue)
@@ -25,6 +26,7 @@ export function TaskEditor({ task, onClose }: Props) {
   const [quickAdds, setQuickAdds] = useState((task?.quickAdds ?? []).join(', '))
   const [schedule, setSchedule] = useState<Schedule>(task?.schedule ?? { type: 'daily' })
   const [color, setColor] = useState(task?.colorHex ?? COLORS[0]!)
+  const [logToPlan, setLogToPlan] = useState(task?.logToPlan ?? false)
 
   const parsedGoal = (): number | null => {
     if (kind === 'checkbox' || direction === 'none') return null
@@ -55,6 +57,7 @@ export function TaskEditor({ task, onClose }: Props) {
       title: trimmed,
       kind,
       goalDirection: kind === 'checkbox' ? ('atLeast' as const) : direction,
+      goalPeriod: period,
       goalValue: parsed,
       unitLabel: kind === 'quantity' ? unit.trim() : '',
       quickAdds:
@@ -66,6 +69,9 @@ export function TaskEditor({ task, onClose }: Props) {
           : [],
       schedule,
       colorHex: color,
+      // only a timer produces a session to place, so the flag is cleared rather than
+      // left set-but-inert on a task that has been switched to another kind
+      logToPlan: kind === 'timer' ? logToPlan : false,
     }
     if (task) void store.updateTask(task.id, patch)
     else void store.createTask(patch)
@@ -121,7 +127,38 @@ export function TaskEditor({ task, onClose }: Props) {
 
           {direction !== 'none' ? (
             <div className="field">
-              <label htmlFor="goal">{kind === 'timer' ? 'Target (e.g. 30m, 1h 15m)' : 'Target amount'}</label>
+              <label>Measured over</label>
+              <div className="seg">
+                {(
+                  [
+                    ['day', 'Each day'],
+                    ['week', 'The whole week'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={`pill${period === value ? ' active' : ''}`}
+                    onClick={() => setPeriod(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {period === 'week' ? (
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  The target is a weekly total — "10h this week", not 10h a day. The streak
+                  counts weeks.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {direction !== 'none' ? (
+            <div className="field">
+              <label htmlFor="goal">
+                {kind === 'timer' ? 'Target (e.g. 30m, 1h 15m)' : 'Target amount'}
+                {period === 'week' ? ' per week' : ''}
+              </label>
               <input
                 id="goal"
                 value={goalText}
@@ -166,7 +203,7 @@ export function TaskEditor({ task, onClose }: Props) {
       ) : null}
 
       <div className="field">
-        <label>Schedule</label>
+        <label>Repeat</label>
         <div className="seg">
           <button
             className={`pill${schedule.type === 'daily' ? ' active' : ''}`}
@@ -186,6 +223,22 @@ export function TaskEditor({ task, onClose }: Props) {
           ))}
         </div>
       </div>
+
+      {kind === 'timer' ? (
+        <div className="field">
+          <label>Schedule</label>
+          <button
+            className={`pill${logToPlan ? ' active' : ''}`}
+            aria-pressed={logToPlan}
+            onClick={() => setLogToPlan(!logToPlan)}
+          >
+            {logToPlan ? '✓ Added when you stop' : 'Add to schedule'}
+          </button>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            Stopping this timer drops the session onto that day's schedule, already ticked.
+          </div>
+        </div>
+      ) : null}
 
       <div className="field">
         <label>Colour</label>

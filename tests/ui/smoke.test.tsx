@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { App } from '../../src/App'
 import { store } from '../../src/db/store'
 import { clearAll } from '../../src/db/idb'
+import { weekKeyFor } from '../../src/core/weekKey'
+import { addDayKey } from '../../src/core/dayKey'
 
 /**
  * Does the app actually run?
@@ -128,22 +130,22 @@ describe('the app', () => {
 
   it('lays the whole day out in 15-minute slots', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Schedule/ }))
 
     // the day starts at 04:00 and runs a full 24 hours, a slot at a time
-    await waitFor(() => expect(screen.getByLabelText('Plan 4:00 AM')).toBeDefined())
-    expect(screen.getByLabelText('Plan 4:15 AM')).toBeDefined()
-    expect(screen.getByLabelText('Plan 3:45 AM')).toBeDefined() // the last slot, next morning
+    await waitFor(() => expect(screen.getByLabelText('Schedule 4:00 AM')).toBeDefined())
+    expect(screen.getByLabelText('Schedule 4:15 AM')).toBeDefined()
+    expect(screen.getByLabelText('Schedule 3:45 AM')).toBeDefined() // the last slot, next morning
   })
 
   it('stretches a block across a tapped range and merges the slots', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
-    await waitFor(() => expect(screen.getByLabelText('Plan 9:00 AM')).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: /Schedule/ }))
+    await waitFor(() => expect(screen.getByLabelText('Schedule 9:00 AM')).toBeDefined())
 
     // tap the start, then tap the last slot it should cover
-    fireEvent.click(screen.getByLabelText('Plan 9:00 AM'))
-    fireEvent.click(screen.getByLabelText('Plan 9:45 AM'))
+    fireEvent.click(screen.getByLabelText('Schedule 9:00 AM'))
+    fireEvent.click(screen.getByLabelText('Schedule 9:45 AM'))
 
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('What is it?'), { target: { value: 'Study' } })
@@ -153,15 +155,15 @@ describe('the app', () => {
     await waitFor(() => expect(screen.getByText('Study')).toBeDefined())
     // four slots became one hour-long cell, and those slots are no longer tappable
     expect(screen.getAllByText('1h').length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText('Plan 9:15 AM')).toBeNull()
-    expect(screen.queryByLabelText('Plan 9:45 AM')).toBeNull()
-    expect(screen.getByLabelText('Plan 10:00 AM')).toBeDefined()
+    expect(screen.queryByLabelText('Schedule 9:15 AM')).toBeNull()
+    expect(screen.queryByLabelText('Schedule 9:45 AM')).toBeNull()
+    expect(screen.getByLabelText('Schedule 10:00 AM')).toBeDefined()
   })
 
   it('has no timer anywhere in the plan — it is intention, not measurement', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
-    await waitFor(() => expect(screen.getByLabelText('Plan 4:00 AM')).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: /Schedule/ }))
+    await waitFor(() => expect(screen.getByLabelText('Schedule 4:00 AM')).toBeDefined())
     expect(screen.queryByLabelText(/^Start /)).toBeNull()
     expect(screen.queryByLabelText(/^Stop /)).toBeNull()
   })
@@ -311,6 +313,96 @@ describe('the app', () => {
 
     await waitFor(() => expect(screen.getByText('Gutters')).toBeDefined())
     expect(store.getSnapshot().projects.every((p) => p.group === 'house')).toBe(true)
+  })
+
+  it('clears completed to-dos, and is there when they are all that is left', async () => {
+    await act(async () => {
+      for (const title of ['Call the bank', 'Book the car', 'Renew pass']) {
+        const todo = await store.createTodo({ title })
+        await store.toggleTodo(todo.id)
+      }
+    })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /To-dos/ }))
+
+    // nothing open, everything done — the old condition hid the button exactly here
+    await waitFor(() => expect(screen.getByText('Clear 3 completed')).toBeDefined())
+    fireEvent.click(screen.getByText('Clear 3 completed'))
+    await flush()
+
+    await waitFor(() => expect(screen.queryByText('Call the bank')).toBeNull())
+    expect(screen.queryByText(/Clear \d+ completed/)).toBeNull()
+  })
+
+  it('does not offer to clear when nothing is completed', async () => {
+    await act(async () => {
+      await store.createTodo({ title: 'Still open' })
+    })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /To-dos/ }))
+    await waitFor(() => expect(screen.getByText('Still open')).toBeDefined())
+    expect(screen.queryByText(/Clear \d+ completed/)).toBeNull()
+  })
+
+  it('tracks a weekly goal across the week and counts days left', async () => {
+    await act(async () => {
+      const task = await store.createTask({
+        title: 'Deep work',
+        kind: 'timer',
+        goalDirection: 'atLeast',
+        goalPeriod: 'week',
+        goalValue: 10 * 3600,
+      })
+      // two sittings on different days of the same week
+      const week = weekKeyFor(store.todayKey(), store.weekStartDay)
+      await store.addManualSeconds('task', task.id, 4 * 3600, week)
+      await store.addManualSeconds('task', task.id, 2.5 * 3600, addDayKey(week, 1))
+    })
+    render(<App />)
+
+    // a daily reading would show only today's sitting; the week is what counts
+    await waitFor(() => expect(screen.getByText('6h 30m')).toBeDefined())
+    expect(screen.getByText(/of 10h this week/)).toBeDefined()
+    expect(screen.getByText(/days? left/)).toBeDefined()
+    expect(screen.queryByText('1')).toBeNull() // 6h30m of 10h is not a streak yet
+  })
+
+  it('migrates a stored timesPerWeek task into a weekly goal', async () => {
+    await act(async () => {
+      const task = await store.createTask({ title: 'Gym', kind: 'checkbox' })
+      // write the retired shape straight past the type, as an old row would have it
+      await store.updateTask(task.id, {
+        schedule: { type: 'timesPerWeek', n: 3 } as never,
+      })
+      await store.load()
+    })
+    const gym = store.getSnapshot().tasks.find((t) => t.title === 'Gym')!
+    expect(gym.schedule).toEqual({ type: 'daily' })
+    expect(gym.goalPeriod).toBe('week')
+    expect(gym.goalDirection).toBe('atLeast')
+    expect(gym.goalValue).toBe(3)
+  })
+
+  it('counts how many times you actually did it, not how many times you touched it', async () => {
+    await act(async () => {
+      const task = await store.createTask({
+        title: 'Read',
+        kind: 'timer',
+        goalDirection: 'atLeast',
+        goalValue: 30 * 60,
+      })
+      const today = store.todayKey()
+      await store.addManualSeconds('task', task.id, 40 * 60, addDayKey(today, -3)) // met
+      await store.addManualSeconds('task', task.id, 10 * 60, addDayKey(today, -2)) // touched
+      await store.addManualSeconds('task', task.id, 45 * 60, addDayKey(today, -1)) // met
+    })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Stats/ }))
+
+    await waitFor(() => expect(screen.getByText('Read')).toBeDefined())
+    expect(screen.getByText(/touched on 3/)).toBeDefined()
+    expect(screen.getByText(/^2 of \d+ days/)).toBeDefined()
+    expect(screen.getByText('1h 35m')).toBeDefined()
   })
 
   it('opens task detail and shows a streak', async () => {

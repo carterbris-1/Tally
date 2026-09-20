@@ -10,10 +10,13 @@
  * you — selectors do that.
  */
 
-import { dayKeyFor, type DayConfig } from '../core/dayKey'
+import { addDayKey, compareDayKeys, dayKeyFor, dayMinuteFor, type DayConfig } from '../core/dayKey'
+import { DEDUPE_DAYS, selectPick } from '../core/reading'
+import { splitSession } from '../core/sessionSplit'
+import { fetchCandidates } from './readSources'
 import { normalizeGroup } from '../core/grouping'
 import { repack as computeRepack } from '../core/repack'
-import { DEFAULT_SETTINGS, type Block, type DayPlan, type Entry, type OwnerType, type Phase, type Project, type Settings, type Task, type Todo } from '../core/types'
+import { DEFAULT_SETTINGS, type Block, type DailyRead, type DayPlan, type Entry, type OwnerType, type Phase, type Project, type Schedule, type Settings, type Task, type Todo } from '../core/types'
 import { getAll, getMeta, putMany, setMeta } from './idb'
 
 export interface Snapshot {
@@ -25,6 +28,7 @@ export interface Snapshot {
   blocks: Block[]
   projects: Project[]
   phases: Phase[]
+  dailyReads: DailyRead[]
   settings: Settings
 }
 
@@ -37,6 +41,7 @@ const EMPTY: Snapshot = {
   blocks: [],
   projects: [],
   phases: [],
+  dailyReads: [],
   settings: DEFAULT_SETTINGS,
 }
 
@@ -48,7 +53,46 @@ const uuid = (): string =>
 
 const stamp = <T extends { updatedAt: string }>(row: T): T => ({ ...row, updatedAt: nowIso() })
 
-type Collection = 'tasks' | 'entries' | 'todos' | 'dayPlans' | 'blocks' | 'projects' | 'phases'
+/** Below this, a finished session is a mis-tap rather than something you did. */
+const MIN_LOGGED_SECONDS = 60
+
+/**
+ * How many days one session may write blocks across.
+ *
+ * A timer left running over a weekend splits into a slice per day, and a block on each
+ * of them is noise rather than a record. Two covers the real case — a session that ran
+ * past 04:00 — and discards the rest.
+ */
+const MAX_LOGGED_DAYS = 2
+
+/**
+ * Bring a stored task up to the current shape.
+ *
+ * `Schedule.timesPerWeek(n)` was deleted: it claimed "any n days this week" but was
+ * implemented as "scheduled every day". The honest equivalent is a daily schedule with a
+ * weekly `atLeast n` goal, so that is what it becomes. This runs on read, so it must ship
+ * with or before the type change — never after, or stored tasks fail to parse.
+ *
+ * Defaults for fields added later belong here too. `load` runs this over everything out
+ * of IndexedDB, and sync reloads through `load` after a pull, so a task written by an
+ * older build — or by another device still on one — arrives with the field filled in
+ * rather than `undefined` masquerading as a boolean.
+ */
+function migrateTask(raw: Task): Task {
+  const legacy = raw.schedule as Schedule | { type: 'timesPerWeek'; n: number } | undefined
+  if (legacy && legacy.type === 'timesPerWeek') {
+    return {
+      ...raw,
+      schedule: { type: 'daily' },
+      goalPeriod: 'week',
+      goalDirection: 'atLeast',
+      goalValue: legacy.n,
+    }
+  }
+  return { ...raw, goalPeriod: raw.goalPeriod ?? 'day', logToPlan: raw.logToPlan ?? false }
+}
+
+type Collection = 'tasks' | 'entries' | 'todos' | 'dayPlans' | 'blocks' | 'projects' | 'phases' | 'dailyReads'
 
 export class TallyStore {
   private state: Snapshot = EMPTY
@@ -70,12 +114,16 @@ export class TallyStore {
     return { dayStartMinute: this.state.settings.dayStartMinute, timeZone: this.state.settings.timeZone }
   }
 
+  get weekStartDay(): number {
+    return this.state.settings.weekStartDay
+  }
+
   todayKey(now: Date | number = Date.now()): string {
     return dayKeyFor(now, this.dayConfig)
   }
 
   async load(): Promise<void> {
-    const [tasks, entries, todos, dayPlans, blocks, projects, phases, settings] = await Promise.all([
+    const [tasks, entries, todos, dayPlans, blocks, projects, phases, dailyReads, settings] = await Promise.all([
       getAll<Task>('tasks'),
       getAll<Entry>('entries'),
       getAll<Todo>('todos'),
@@ -83,17 +131,19 @@ export class TallyStore {
       getAll<Block>('blocks'),
       getAll<Project>('projects'),
       getAll<Phase>('phases'),
+      getAll<DailyRead>('dailyReads'),
       getMeta<Settings>('settings'),
     ])
     this.emit({
       ready: true,
-      tasks,
+      tasks: tasks.map(migrateTask),
       entries,
       todos,
       dayPlans,
       blocks,
       projects,
       phases,
+      dailyReads,
       // an explicit choice in Settings wins; otherwise the Eastern default applies
       settings: { ...DEFAULT_SETTINGS, ...settings, timeZone: settings?.timeZone || DEFAULT_SETTINGS.timeZone },
     })
@@ -128,6 +178,7 @@ export class TallyStore {
       title: input.title,
       kind: input.kind,
       goalDirection: input.goalDirection ?? 'none',
+      goalPeriod: input.goalPeriod ?? 'day',
       goalValue: input.goalValue ?? null,
       unitLabel: input.unitLabel ?? '',
       schedule: input.schedule ?? { type: 'daily' },
@@ -135,6 +186,7 @@ export class TallyStore {
       colorHex: input.colorHex ?? '#4F46E5',
       symbolName: input.symbolName ?? 'circle',
       sortOrder: input.sortOrder ?? maxOrder + 1,
+      logToPlan: input.logToPlan ?? false,
       isArchived: false,
       createdAt: nowIso(),
     }
@@ -198,14 +250,83 @@ export class TallyStore {
    * Blocks are stricter: only one block runs at a time across the whole plan, and
    * starting one never disturbs a running task timer.
    */
+  /**
+   * End one running session. The only place `endedAt` is ever set.
+   *
+   * There are two ways a session ends: the stop button, and starting a task that is
+   * already running, which silently ends the first run. That second path used to set
+   * `endedAt` inline here in `startTimer`, so anything hung off the end of a session had
+   * to be written twice or it would quietly not happen on the restart — the case a user
+   * hits by double-tapping and then cannot explain. One funnel, one place to hook.
+   *
+   * Idempotent: an entry that has already ended is left alone.
+   */
+  private async finishEntry(entry: Entry, at: string): Promise<void> {
+    if (entry.endedAt) return
+    const ended = { ...entry, endedAt: at, updatedAt: at }
+    // the session is recorded first and unconditionally: if writing the block fails,
+    // the time you spent is still yours
+    await this.persist('entries', [ended])
+    await this.logSessionToPlan(ended)
+  }
+
+  /**
+   * Put a finished session on the day's schedule, if its task asked to be there.
+   *
+   * Only task timers. A block can own a timer too, and logging that would have the
+   * schedule growing a copy of a block every time you ran one.
+   *
+   * The times are the real ones, to the minute and unsnapped — the canvas rounds to its
+   * fifteen-minute grid when it draws, but what is stored is what happened. `dayMinuteFor`
+   * rather than subtracting the day's start, so the two DST days a year land in the right
+   * slot rather than an hour out.
+   *
+   * A session that crosses 04:00 becomes one block per day it touches: `splitSession`
+   * already does that arithmetic for the stats, and the start offsets fall out of it —
+   * only the first slice begins part-way through a day, and every later one begins at
+   * midnight-of-the-tally-day, which is minute zero.
+   */
+  private async logSessionToPlan(entry: Entry): Promise<void> {
+    if (entry.ownerType !== 'task' || !entry.startedAt || !entry.endedAt) return
+    const task = this.state.tasks.find((t) => t.id === entry.ownerId && !t.deletedAt)
+    if (!task?.logToPlan) return
+
+    const started = Date.parse(entry.startedAt)
+    const ended = Date.parse(entry.endedAt)
+    if (!Number.isFinite(started) || !Number.isFinite(ended)) return
+    // a tap on play and straight back off is not a session, it is a mis-tap
+    if (ended - started < MIN_LOGGED_SECONDS * 1000) return
+
+    const cfg = this.dayConfig
+    const slices = splitSession(started, ended, cfg).slice(0, MAX_LOGGED_DAYS)
+
+    for (const [index, slice] of slices.entries()) {
+      const minutes = Math.round(slice.seconds / 60)
+      // a long-enough session can still leave a sliver on one side of the boundary;
+      // a block of no minutes is not worth a row
+      if (minutes < 1) continue
+
+      const startMinute = index === 0 ? Math.round(dayMinuteFor(started, slice.dayKey, cfg)) : 0
+      const plan = await this.ensurePlan(slice.dayKey)
+      await this.addBlock(plan.id, {
+        title: task.title,
+        plannedStartMinute: startMinute,
+        plannedMinutes: minutes,
+        colorHex: task.colorHex,
+        completedAt: entry.endedAt,
+        sortOrder: startMinute, // start time is the order, as it is for a planned block
+      })
+    }
+  }
+
   async startTimer(ownerType: OwnerType, ownerId: string): Promise<Entry> {
     const at = nowIso()
     const toStop = this.runningEntries().filter((e) =>
       ownerType === 'block' ? e.ownerType === 'block' : e.ownerType === ownerType && e.ownerId === ownerId,
     )
-    if (toStop.length > 0) {
-      await this.persist('entries', toStop.map((e) => ({ ...e, endedAt: at, updatedAt: at })))
-    }
+    // one at a time, so each gets the same end-of-session treatment as a deliberate stop
+    for (const e of toStop) await this.finishEntry(e, at)
+
     const entry = this.newEntry(ownerType, ownerId, { startedAt: at })
     await this.persist('entries', [entry])
     return entry
@@ -213,8 +334,8 @@ export class TallyStore {
 
   async stopTimer(entryId: string): Promise<void> {
     const entry = this.state.entries.find((e) => e.id === entryId)
-    if (!entry || entry.endedAt) return
-    await this.persist('entries', [stamp({ ...entry, endedAt: nowIso() })])
+    if (!entry) return
+    await this.finishEntry(entry, nowIso())
   }
 
   async toggleTimer(ownerType: OwnerType, ownerId: string): Promise<void> {
@@ -324,7 +445,13 @@ export class TallyStore {
     await this.persist('todos', rows)
   }
 
-  /** Completed to-dos are kept for a while, then tombstoned. */
+  /**
+   * Automatic retention, run on load. Not a button.
+   *
+   * This only touches to-dos completed longer ago than the retention window, which is
+   * correct as a policy and useless as an action: nothing you finished this month
+   * qualifies, so a button wired to it appears to do nothing. See clearCompletedTodos.
+   */
   async purgeCompletedTodos(now: Date = new Date()): Promise<void> {
     const cutoff = now.getTime() - this.state.settings.todoRetentionDays * 86_400_000
     const stale = this.state.todos.filter(
@@ -332,6 +459,15 @@ export class TallyStore {
     )
     const at = nowIso()
     await this.persist('todos', stale.map((t) => ({ ...t, deletedAt: at, updatedAt: at })))
+  }
+
+  /** What the button does: clear everything completed, whatever its age. */
+  async clearCompletedTodos(): Promise<number> {
+    const done = this.state.todos.filter((t) => !t.deletedAt && t.completedAt !== null)
+    if (done.length === 0) return 0
+    const at = nowIso()
+    await this.persist('todos', done.map((t) => ({ ...t, deletedAt: at, updatedAt: at })))
+    return done.length
   }
 
   // --------------------------------------------------------------- day plans
@@ -357,7 +493,9 @@ export class TallyStore {
       plannedMinutes: input.plannedMinutes ?? 60,
       note: input.note ?? '',
       colorHex: input.colorHex ?? '#4F46E5',
-      completedAt: null,
+      // a block planned by hand starts unticked; one logged from a finished session
+      // arrives already done, because it describes work that has happened
+      completedAt: input.completedAt ?? null,
       sortOrder: input.sortOrder ?? (last ? last.sortOrder + 1 : 0),
     }
     await this.persist('blocks', [block])
@@ -406,6 +544,106 @@ export class TallyStore {
         .filter((r): r is Block => r !== null)
       await this.persist('blocks', rows)
     }
+  }
+
+  // ------------------------------------------------------------ daily read
+
+  readFor(dayKey: string): DailyRead | null {
+    return this.state.dailyReads.find((r) => !r.deletedAt && r.dayKey === dayKey) ?? null
+  }
+
+  /**
+   * Everything off the table: picked recently, or already waiting in the buffer.
+   *
+   * Buffered days matter as much as past ones — fill three days in a single pass without
+   * counting them and you get the same paper three mornings running.
+   *
+   * Tombstoned rows count too, which is the whole point of the skip button. `skipRead`
+   * deletes the row, so excluding deleted rows here made a skipped piece instantly
+   * eligible again and it came straight back.
+   */
+  private recentSourceIds(todayKey: string): Set<string> {
+    const floor = addDayKey(todayKey, -DEDUPE_DAYS)
+    const ids = new Set<string>()
+    for (const r of this.state.dailyReads) {
+      if (compareDayKeys(r.dayKey, floor) >= 0) ids.add(r.sourceId)
+    }
+    return ids
+  }
+
+  private enabledTopics(): string[] {
+    const weights = this.state.settings.readTopics
+    const on = Object.entries(weights).filter(([, w]) => w > 0).map(([t]) => t)
+    return on.length > 0 ? on : Object.keys(weights)
+  }
+
+  /**
+   * Fill today and the next two days, if they are not already chosen.
+   *
+   * Runs whenever we are online. Without a bundled corpus this buffer is the only thing
+   * standing between a plane and an empty screen, so it works ahead rather than choosing
+   * on demand. Silent on failure: a dry buffer shows an honest empty state, never an
+   * error the user cannot act on.
+   */
+  async fillReadBuffer(depth = 3, now: Date | number = Date.now()): Promise<void> {
+    const todayKey = this.todayKey(now)
+    const wanted = Array.from({ length: depth }, (_, i) => addDayKey(todayKey, i))
+    const missing = wanted.filter((d) => this.readFor(d) === null)
+    if (missing.length === 0) return
+
+    const candidates = await fetchCandidates(this.enabledTopics(), todayKey, new Date(now).getTime())
+    if (candidates.length === 0) return
+
+    const recent = this.recentSourceIds(todayKey)
+    const rows: DailyRead[] = []
+    for (const dayKey of missing) {
+      const pick = selectPick({
+        candidates,
+        dayKey,
+        topics: this.state.settings.readTopics,
+        minutesMax: this.state.settings.readMinutesMax,
+        recentSourceIds: recent,
+      })
+      if (!pick) break
+      recent.add(pick.sourceId)
+      rows.push({
+        id: uuid(),
+        updatedAt: nowIso(),
+        deletedAt: null,
+        dayKey,
+        ...pick,
+        openedAt: null,
+        finishedAt: null,
+        skippedAt: null,
+        savedAt: null,
+        createdAt: nowIso(),
+      })
+    }
+    await this.persist('dailyReads', rows)
+  }
+
+  async updateRead(id: string, patch: Partial<DailyRead>): Promise<void> {
+    const row = this.state.dailyReads.find((r) => r.id === id)
+    if (!row) return
+    await this.persist('dailyReads', [stamp({ ...row, ...patch, id: row.id })])
+  }
+
+  /** Opening it may start a timer, the way checking off a linked to-do does. */
+  async openRead(id: string): Promise<void> {
+    await this.updateRead(id, { openedAt: nowIso() })
+    const taskId = this.state.settings.readLinkedTaskId
+    if (!taskId) return
+    const task = this.state.tasks.find((t) => t.id === taskId && !t.deletedAt)
+    if (task?.kind === 'timer') await this.startTimer('task', task.id)
+  }
+
+  /** Skip draws a replacement for the same day; the skipped item never comes back. */
+  async skipRead(id: string): Promise<void> {
+    const row = this.state.dailyReads.find((r) => r.id === id)
+    if (!row) return
+    const at = nowIso()
+    await this.persist('dailyReads', [{ ...row, skippedAt: at, deletedAt: at, updatedAt: at }])
+    await this.fillReadBuffer(1)
   }
 
   // ---------------------------------------------------------------- projects

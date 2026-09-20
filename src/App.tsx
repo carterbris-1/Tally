@@ -3,19 +3,21 @@ import type { Task } from './core/types'
 import { useSnapshot } from './ui/hooks'
 import { Plan } from './ui/Plan'
 import { Projects } from './ui/Projects'
+import { Stats } from './ui/Stats'
 import { SettingsView } from './ui/SettingsView'
 import { TaskDetail } from './ui/TaskDetail'
 import { TaskEditor } from './ui/TaskEditor'
 import { Today } from './ui/Today'
 import { Todos } from './ui/Todos'
 
-type Tab = 'today' | 'todos' | 'plan' | 'projects' | 'settings'
+type Tab = 'today' | 'todos' | 'plan' | 'projects' | 'stats' | 'settings'
 
 const TABS: Array<{ id: Tab; label: string; glyph: string }> = [
   { id: 'today', label: 'Today', glyph: '◎' },
   { id: 'todos', label: 'To-dos', glyph: '✓' },
-  { id: 'plan', label: 'Plan', glyph: '▤' },
+  { id: 'plan', label: 'Schedule', glyph: '▤' },
   { id: 'projects', label: 'Projects', glyph: '◈' },
+  { id: 'stats', label: 'Stats', glyph: '▦' },
   { id: 'settings', label: 'Settings', glyph: '⚙' },
 ]
 
@@ -35,6 +37,7 @@ export function App() {
     if (tab === 'todos') return <Todos />
     if (tab === 'plan') return <Plan />
     if (tab === 'projects') return <Projects />
+    if (tab === 'stats') return <Stats />
     return <SettingsView />
   }
 
