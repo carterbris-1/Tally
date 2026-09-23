@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../src/App'
 import { store } from '../../src/db/store'
 import { clearAll } from '../../src/db/idb'
+import { instantForDayMinute } from '../../src/core/dayKey'
 
 /** The whole point, seen the way a user sees it: time it, stop it, find it on the schedule. */
 
@@ -14,17 +15,23 @@ beforeEach(async () => {
 })
 afterEach(() => {
   vi.useRealTimers()
-  document.body.innerHTML = ''
+  cleanup()
 })
 
 describe('a timed session on a flagged task', () => {
   it('shows up on the schedule, ticked, once the timer stops', async () => {
     const task = await store.createTask({ title: 'Read', kind: 'timer', logToPlan: true })
 
+    // The session has to land on the REAL today, not a date written into the test: the
+    // canvas takes its day from `useNow`, and ticker.ts caches that at module load, so
+    // vi.setSystemTime cannot move it. Minutes 605 and 650 are 14:05 and 14:50 past the
+    // 04:00 day start on whatever day this runs.
+    const dayKey = store.todayKey()
+    const cfg = store.dayConfig
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-09-20T18:05:00.000Z')) // 14:05 Eastern
+    vi.setSystemTime(instantForDayMinute(dayKey, 605, cfg))
     const entry = await store.startTimer('task', task.id)
-    vi.setSystemTime(new Date('2026-09-20T18:50:00.000Z')) // 45 minutes later
+    vi.setSystemTime(instantForDayMinute(dayKey, 650, cfg)) // 45 minutes later
     await act(async () => { await store.stopTimer(entry.id) })
     vi.useRealTimers()
 

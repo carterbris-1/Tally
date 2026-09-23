@@ -224,9 +224,14 @@ describe('logging a finished session to the day plan', () => {
   })
 
   it('never logs a block timer, which would breed copies of itself', async () => {
+    // the clock is faked before anything is created: `blocksToday` resolves today from
+    // whatever Date says, so a plan made under the real clock and read back under a fake
+    // one looks at two different days. That is a test that passes only on the day it
+    // was written, which is exactly what happened here.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-20T18:00:00.000Z'))
     const plan = await store.ensurePlan(store.todayKey())
     const block = await store.addBlock(plan.id, { title: 'Deep work' })
-    vi.useFakeTimers({ now: new Date('2026-09-20T18:00:00.000Z'), toFake: ['Date'] })
     const entry = await store.startTimer('block', block.id)
     vi.setSystemTime(new Date('2026-09-20T18:30:00.000Z'))
     await store.stopTimer(entry.id)

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../src/App'
 import { store } from '../../src/db/store'
@@ -42,7 +42,7 @@ beforeEach(async () => {
 })
 afterEach(() => {
   vi.unstubAllGlobals()
-  document.body.innerHTML = ''
+  cleanup()
 })
 
 describe('the daily read', () => {

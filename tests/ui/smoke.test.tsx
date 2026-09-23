@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { App } from '../../src/App'
 import { store } from '../../src/db/store'
@@ -28,7 +28,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
-  document.body.innerHTML = ''
+  cleanup()
 })
 
 describe('the app', () => {

@@ -126,6 +126,9 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
 }
 .tabs button {
   flex: 1;
+  /* a flex item will not shrink below its longest word unless told it may; without this
+     six labels make the bar wider than a small phone and "Settings" runs off the edge */
+  min-width: 0;
   padding: 9px 4px 8px;
   display: grid;
   justify-items: center;
@@ -137,6 +140,10 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
 }
 .tabs button[aria-current='true'] { color: var(--accent); }
 .tabs .glyph { font-size: 17px; line-height: 1; }
+.tabs button > span:last-child {
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 @media (min-width: 900px) {
   .app { grid-template-rows: none; grid-template-columns: 232px 1fr; }
@@ -318,7 +325,12 @@ input:focus, select, textarea:focus { border-color: var(--accent); }
 /* ---------------------------------------------------------------- sheet */
 
 .scrim {
-  position: fixed; inset: 0; z-index: 40;
+  position: fixed;
+  /* Not `inset: 0`. On iOS Safari the layout viewport is the LARGE one — the height with
+     the address bar collapsed — so pinning bottom:0 puts the foot of the sheet, and the
+     Save button with it, behind the address bar. dvh is the viewport as it currently is. */
+  top: 0; left: 0; right: 0; height: 100dvh;
+  z-index: 40;
   background: rgba(0, 0, 0, 0.55);
   display: flex; align-items: flex-end; justify-content: center;
 }
