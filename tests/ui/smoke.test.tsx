@@ -340,6 +340,26 @@ describe('the app', () => {
     expect(screen.getByText(/^house · /)).toBeDefined()
   })
 
+  it('heads ungrouped to-dos when Overdue sits above them, and spells groups one way', async () => {
+    await act(async () => {
+      await store.createTodo({ title: 'Loose end' })
+      await store.createTodo({ title: 'Late bill', group: 'House', dueDate: '2000-01-01T12:00:00.000Z' })
+      await store.createTodo({ title: 'Mow lawn', group: 'house' }) // newest sorts first
+      const done = await store.createTodo({ title: 'Call plumber', group: 'house', notes: 'ask about the boiler' })
+      await store.toggleTodo(done.id)
+    })
+    const { container } = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /To-dos/ }))
+    await waitFor(() => expect(screen.getByText('Loose end')).toBeDefined())
+
+    const headings = [...container.querySelectorAll('.section-label')].map((h) => h.textContent)
+    expect(headings).toEqual(['Overdue', 'house · 1', 'Ungrouped · 1', 'Completed'])
+    // the overdue row uses the heading's spelling, not its own stored "House"
+    expect(screen.getByText(/^house · \w+ \d+$/)).toBeDefined()
+    // a grouped completed to-do still shows its notes
+    expect(screen.getByText('house · ask about the boiler')).toBeDefined()
+  })
+
   it('clears completed to-dos, and is there when they are all that is left', async () => {
     await act(async () => {
       for (const title of ['Call the bank', 'Book the car', 'Renew pass']) {

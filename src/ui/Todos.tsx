@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Todo } from '../core/types'
-import { groupByName } from '../core/grouping'
-import { doneTodos, isOverdue, liveTasks, openTodos, todoGroupNames } from '../db/selectors'
+import { groupByName, groupKey } from '../core/grouping'
+import { doneTodos, isOverdue, liveTasks, openTodos, todoGroupLabels, todoGroupNames } from '../db/selectors'
 import { useNow, useSnapshot, useStore } from './hooks'
 import { GroupField } from './shared/GroupField'
 import { Sheet } from './shared/Sheet'
@@ -16,8 +16,11 @@ export function Todos() {
   const open = openTodos(s)
   const overdue = open.filter((t) => isOverdue(t, now))
   const groups = groupByName(open.filter((t) => !isOverdue(t, now)))
-  // a lone "Ungrouped" heading over everything is noise, not information
-  const showHeadings = groups.length > 1 || (groups[0]?.key ?? '') !== ''
+  const labels = todoGroupLabels(s)
+  const labelOf = (t: Todo): string => labels.get(groupKey(t.group ?? '')) ?? ''
+  // a lone "Ungrouped" heading over everything is noise, not information — unless the
+  // Overdue section sits above it, where headingless rows would read as overdue
+  const showHeadings = overdue.length > 0 || groups.length > 1 || (groups[0]?.key ?? '') !== ''
   const allDone = doneTodos(s)
   const done = allDone.slice(0, 20)
 
@@ -39,7 +42,7 @@ export function Todos() {
         <>
           <div className="section-label danger-text">Overdue</div>
           {overdue.map((t) => (
-            <TodoRow key={t.id} todo={t} onEdit={setEditing} showGroup />
+            <TodoRow key={t.id} todo={t} onEdit={setEditing} groupLabel={labelOf(t)} />
           ))}
         </>
       ) : null}
@@ -48,7 +51,7 @@ export function Todos() {
         <section key={group.key || 'ungrouped'}>
           {showHeadings ? (
             <div className="section-label">
-              {group.label || 'Ungrouped'}
+              {labels.get(group.key) || 'Ungrouped'}
               <span style={{ opacity: 0.6 }}> · {group.items.length}</span>
             </div>
           ) : null}
@@ -62,7 +65,7 @@ export function Todos() {
         <>
           <div className="section-label">Completed</div>
           {done.map((t) => (
-            <TodoRow key={t.id} todo={t} onEdit={setEditing} showGroup />
+            <TodoRow key={t.id} todo={t} onEdit={setEditing} groupLabel={labelOf(t)} />
           ))}
           <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
             Cleared automatically after {s.settings.todoRetentionDays} days.
@@ -91,13 +94,19 @@ export function Todos() {
   )
 }
 
-/** `showGroup` is for rows listed outside their group's heading: overdue and completed. */
-function TodoRow({ todo, onEdit, showGroup = false }: { todo: Todo; onEdit: (t: Todo) => void; showGroup?: boolean }) {
+/** `groupLabel` is for rows listed outside their group's heading: overdue and completed. */
+function TodoRow({ todo, onEdit, groupLabel = '' }: { todo: Todo; onEdit: (t: Todo) => void; groupLabel?: string }) {
   const s = useSnapshot()
   const store = useStore()
   const done = todo.completedAt !== null
   const linked = todo.linkedTaskId ? s.tasks.find((t) => t.id === todo.linkedTaskId) : null
-  const group = showGroup ? (todo.group ?? '') : ''
+  const date = todo.dueDate
+    ? new Date(todo.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : ''
+  const meta = [groupLabel, date, linked ? `starts ${linked.title}` : '']
+  // notes only fill in when there is no date or linked task to show
+  if (!date && !linked) meta.push(todo.notes)
+  const metaLine = meta.filter(Boolean).join(' · ')
 
   return (
     <div className="row" style={{ minHeight: 54 }}>
@@ -113,15 +122,7 @@ function TodoRow({ todo, onEdit, showGroup = false }: { todo: Todo; onEdit: (t: 
           {todo.isFlagged ? '⚑ ' : ''}
           {todo.title}
         </div>
-        {group || todo.dueDate || linked || todo.notes ? (
-          <div className="meta">
-            {group ? `${group}${todo.dueDate || linked ? ' · ' : ''}` : null}
-            {todo.dueDate ? new Date(todo.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null}
-            {todo.dueDate && linked ? ' · ' : null}
-            {linked ? `starts ${linked.title}` : null}
-            {!group && !todo.dueDate && !linked && todo.notes ? todo.notes : null}
-          </div>
-        ) : null}
+        {metaLine ? <div className="meta">{metaLine}</div> : null}
       </button>
     </div>
   )

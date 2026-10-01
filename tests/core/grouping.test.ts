@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupByName, groupNames, normalizeGroup } from '../../src/core/grouping'
+import { groupByName, groupLabels, groupNames, normalizeGroup } from '../../src/core/grouping'
 
 const p = (title: string, group?: string) => ({ title, ...(group === undefined ? {} : { group }) })
 
@@ -54,5 +54,18 @@ describe('normalizeGroup', () => {
   it('trims but does not change case', () => {
     expect(normalizeGroup('  House ')).toBe('House')
     expect(normalizeGroup('')).toBe('')
+  })
+
+  it('treats a group called Ungrouped as no group, so it cannot pose as the real pile', () => {
+    expect(normalizeGroup(' UNGROUPED ')).toBe('')
+    expect(groupByName([p('a', 'ungrouped'), p('b')])).toHaveLength(1)
+  })
+})
+
+describe('groupLabels', () => {
+  it('gives every list one spelling per group', () => {
+    const labels = groupLabels([p('a', 'house'), p('b', 'House'), p('c')])
+    expect(labels.get('house')).toBe('house')
+    expect(labels.get('')).toBe('')
   })
 })

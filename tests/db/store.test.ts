@@ -342,3 +342,18 @@ describe('sessions too short, and sessions that cross the day start', () => {
     expect(allBlocks()[0]!.plannedMinutes).toBe(45)
   })
 })
+
+describe('to-do groups', () => {
+  it('trims the group on edit, as on create', async () => {
+    const todo = await store.createTodo({ title: 'Paint fence', group: ' house ' })
+    expect(store.getSnapshot().todos[0]?.group).toBe('house')
+    await store.updateTodo(todo.id, { group: '  garden ' })
+    expect(store.getSnapshot().todos.find((t) => t.id === todo.id)?.group).toBe('garden')
+  })
+
+  it('leaves the group alone when an edit does not touch it', async () => {
+    const todo = await store.createTodo({ title: 'Paint fence', group: 'house' })
+    await store.updateTodo(todo.id, { title: 'Paint the fence' })
+    expect(store.getSnapshot().todos.find((t) => t.id === todo.id)?.group).toBe('house')
+  })
+})

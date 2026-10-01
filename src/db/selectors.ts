@@ -15,7 +15,7 @@ import { isScheduled } from '../core/schedule'
 import { isRunning } from '../core/sessionSplit'
 import { currentPhase, weightedProgress } from '../core/progress'
 import { plannedEndMinute } from '../core/repack'
-import { groupByName, groupNames, type Group } from '../core/grouping'
+import { groupByName, groupLabels, groupNames, type Group } from '../core/grouping'
 import type { Block, Entry, Phase, Project, Task, Todo } from '../core/types'
 import type { Snapshot } from './store'
 
@@ -139,6 +139,9 @@ export const doneTodos = (s: Snapshot): Todo[] =>
 
 /** Existing to-do group names, for the editor's suggestions. Completed to-dos count too. */
 export const todoGroupNames = (s: Snapshot): string[] => groupNames(liveTodos(s))
+
+/** Group key → display spelling, over the same to-dos the pills come from. */
+export const todoGroupLabels = (s: Snapshot): Map<string, string> => groupLabels(liveTodos(s))
 
 export const isOverdue = (t: Todo, now: number): boolean =>
   t.completedAt === null && t.dueDate !== null && Date.parse(t.dueDate) < now

@@ -10,7 +10,17 @@ export interface Group<T> {
 
 const UNGROUPED = ''
 
-export const normalizeGroup = (name: string): string => name.trim()
+/** The case-folded identity of a group name. */
+export const groupKey = (name: string): string => normalizeGroup(name).toLocaleLowerCase()
+
+/**
+ * Trimmed. "Ungrouped" in any case means no group: a real group by that name would
+ * render a second, identical-looking "Ungrouped" heading next to the real one.
+ */
+export const normalizeGroup = (name: string): string => {
+  const trimmed = name.trim()
+  return trimmed.toLocaleLowerCase() === 'ungrouped' ? UNGROUPED : trimmed
+}
 
 /**
  * Group items by name, **case-insensitively**.
@@ -27,7 +37,7 @@ export function groupByName<T extends { group?: string }>(items: readonly T[]): 
 
   for (const item of items) {
     const label = normalizeGroup(item.group ?? '')
-    const key = label.toLocaleLowerCase()
+    const key = groupKey(label)
     let group = groups.get(key)
     if (!group) {
       group = { key, label, items: [] }
@@ -48,4 +58,12 @@ export function groupNames<T extends { group?: string }>(items: readonly T[]): s
   return groupByName(items)
     .filter((g) => g.key !== UNGROUPED)
     .map((g) => g.label)
+}
+
+/**
+ * One display spelling per group key. Use it when items are split across lists (open,
+ * overdue, completed) so every list spells a group the same way.
+ */
+export function groupLabels<T extends { group?: string }>(items: readonly T[]): Map<string, string> {
+  return new Map(groupByName(items).map((g) => [g.key, g.label]))
 }
