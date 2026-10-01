@@ -63,6 +63,8 @@ export interface Entry extends Syncable {
 
 export interface Todo extends Syncable {
   title: string
+  /** Same rules as Project.group. Optional because rows written before it existed lack it. */
+  group?: string
   notes: string
   dueDate: string | null
   isFlagged: boolean

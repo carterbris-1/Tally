@@ -402,6 +402,7 @@ export class TallyStore {
       updatedAt: nowIso(),
       deletedAt: null,
       title: input.title,
+      group: normalizeGroup(input.group ?? ''),
       notes: input.notes ?? '',
       dueDate: input.dueDate ?? null,
       isFlagged: input.isFlagged ?? false,
@@ -417,7 +418,9 @@ export class TallyStore {
   async updateTodo(id: string, patch: Partial<Todo>): Promise<void> {
     const todo = this.state.todos.find((t) => t.id === id)
     if (!todo) return
-    await this.persist('todos', [stamp({ ...todo, ...patch, id: todo.id })])
+    const next = { ...todo, ...patch, id: todo.id }
+    if (patch.group !== undefined) next.group = normalizeGroup(patch.group)
+    await this.persist('todos', [stamp(next)])
   }
 
   /** Checking off a to-do linked to a timer task starts that timer. */

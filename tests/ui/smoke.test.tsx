@@ -315,6 +315,31 @@ describe('the app', () => {
     expect(store.getSnapshot().projects.every((p) => p.group === 'house')).toBe(true)
   })
 
+  it('groups open to-dos under headings, keeping overdue ones on top', async () => {
+    await act(async () => {
+      await store.createTodo({ title: 'Paint fence', group: 'house' })
+      await store.createTodo({ title: 'Loose end' })
+      await store.createTodo({ title: 'Late bill', group: 'house', dueDate: '2000-01-01T12:00:00.000Z' })
+    })
+    const { container } = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /To-dos/ }))
+    await waitFor(() => expect(screen.getByText('Paint fence')).toBeDefined())
+
+    // a new to-do joins an existing group through its pill
+    fireEvent.click(screen.getByLabelText('New to-do'))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Title'), { target: { value: 'Fix gutter' } })
+    fireEvent.click(within(dialog).getByText('house'))
+    fireEvent.click(within(dialog).getByText('Save'))
+    await flush()
+    await waitFor(() => expect(screen.getByText('Fix gutter')).toBeDefined())
+
+    const headings = [...container.querySelectorAll('.section-label')].map((h) => h.textContent)
+    expect(headings).toEqual(['Overdue', 'house · 2', 'Ungrouped · 1'])
+    // the overdue row says which group it came from
+    expect(screen.getByText(/^house · /)).toBeDefined()
+  })
+
   it('clears completed to-dos, and is there when they are all that is left', async () => {
     await act(async () => {
       for (const title of ['Call the bank', 'Book the car', 'Renew pass']) {

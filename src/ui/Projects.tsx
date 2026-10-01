@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Phase, Project } from '../core/types'
 import { groupedProjects, projectGroupNames, projectView, todosForPhase } from '../db/selectors'
 import { useSnapshot, useStore } from './hooks'
+import { GroupField } from './shared/GroupField'
 import { Sheet } from './shared/Sheet'
 
 export function Projects() {
@@ -196,9 +197,6 @@ function ProjectEditor({ project, onClose }: { project: Project | null; onClose:
   const [notes, setNotes] = useState(project?.notes ?? '')
   const [target, setTarget] = useState(project?.targetDate?.slice(0, 10) ?? '')
 
-  const existing = projectGroupNames(s)
-  const inGroup = (name: string): boolean => group.trim().toLocaleLowerCase() === name.toLocaleLowerCase()
-
   const save = (): void => {
     const trimmed = title.trim()
     if (!trimmed) return
@@ -220,36 +218,7 @@ function ProjectEditor({ project, onClose }: { project: Project | null; onClose:
         <input id="p-title" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
       </div>
 
-      <div className="field">
-        <label htmlFor="p-group">Group</label>
-        {existing.length > 0 ? (
-          <div className="seg" style={{ marginBottom: 7 }}>
-            <button className={`pill${group.trim() === '' ? ' active' : ''}`} onClick={() => setGroup('')}>
-              None
-            </button>
-            {existing.map((name) => (
-              <button
-                key={name}
-                className={`pill${inGroup(name) ? ' active' : ''}`}
-                onClick={() => setGroup(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        <input
-          id="p-group"
-          value={group}
-          onChange={(e) => setGroup(e.target.value)}
-          placeholder="house, dev, travel…"
-        />
-        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          {existing.length > 0
-            ? 'Tap one above, or type a new name. Capitalisation does not make a new group.'
-            : 'Type a name to start a group. Others can join it later.'}
-        </div>
-      </div>
+      <GroupField id="p-group" value={group} onChange={setGroup} existing={projectGroupNames(s)} />
       <div className="field">
         <label htmlFor="p-notes">Notes</label>
         <textarea id="p-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />

@@ -137,6 +137,9 @@ export const doneTodos = (s: Snapshot): Todo[] =>
     .filter((t) => t.completedAt !== null)
     .sort((a, b) => (a.completedAt! < b.completedAt! ? 1 : -1))
 
+/** Existing to-do group names, for the editor's suggestions. Completed to-dos count too. */
+export const todoGroupNames = (s: Snapshot): string[] => groupNames(liveTodos(s))
+
 export const isOverdue = (t: Todo, now: number): boolean =>
   t.completedAt === null && t.dueDate !== null && Date.parse(t.dueDate) < now
 
