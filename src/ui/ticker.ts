@@ -7,17 +7,19 @@
  */
 
 let interval: ReturnType<typeof setInterval> | null = null
-let current = Math.floor(Date.now() / 1000) * 1000
+const second = (): number => Math.floor(Date.now() / 1000) * 1000
+let current = second()
 const listeners = new Set<() => void>()
 
 const tick = (): void => {
-  current = Math.floor(Date.now() / 1000) * 1000
+  current = second()
   for (const fn of listeners) fn()
 }
 
 export function subscribeToTick(fn: () => void): () => void {
   listeners.add(fn)
   if (interval === null) {
+    current = second()
     interval = setInterval(tick, 1000)
     // a tab that was backgrounded comes back with a stale clock
     document.addEventListener('visibilitychange', tick)
@@ -32,4 +34,12 @@ export function subscribeToTick(fn: () => void): () => void {
   }
 }
 
-export const getTick = (): number => current
+/**
+ * With nothing subscribed there is no interval keeping `current` fresh, so read the
+ * clock instead of serving whatever it was when the last timer stopped (or when this
+ * module loaded, which is also what made the clock impossible to fake in tests).
+ */
+export const getTick = (): number => {
+  if (listeners.size === 0) current = second()
+  return current
+}

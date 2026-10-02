@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../src/App'
 import { store } from '../../src/db/store'
 import { clearAll } from '../../src/db/idb'
 import { weekKeyFor } from '../../src/core/weekKey'
 import { addDayKey } from '../../src/core/dayKey'
+import { wallClock } from '../helpers'
 
 /**
  * Does the app actually run?
@@ -29,7 +30,17 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
 })
+
+/**
+ * Pin the calendar for a test whose answer depends on where today falls in its week or
+ * month. Only Date is faked: waitFor and the IndexedDB shim still need real timers.
+ */
+const pinClock = (iso: string): void => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(wallClock(iso))
+}
 
 describe('the app', () => {
   it('renders the Today screen with an empty state', async () => {
@@ -390,6 +401,7 @@ describe('the app', () => {
   })
 
   it('tracks a weekly goal across the week and counts days left', async () => {
+    pinClock('2026-06-18T12:00') // mid-week, so day two of the week is already past
     await act(async () => {
       const task = await store.createTask({
         title: 'Deep work',
@@ -429,6 +441,7 @@ describe('the app', () => {
   })
 
   it('counts how many times you actually did it, not how many times you touched it', async () => {
+    pinClock('2026-06-17T12:00') // mid-month, so all three sittings are in "This month"
     await act(async () => {
       const task = await store.createTask({
         title: 'Read',
@@ -443,13 +456,39 @@ describe('the app', () => {
     })
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Stats/ }))
-    // the sittings are 1-3 days back, which is last month early in a month; all time always holds them
-    fireEvent.click(screen.getByRole('button', { name: 'All time' }))
 
     await waitFor(() => expect(screen.getByText('Read')).toBeDefined())
     expect(screen.getByText(/touched on 3/)).toBeDefined()
     expect(screen.getByText(/^2 of \d+ days/)).toBeDefined()
     expect(screen.getByText('1h 35m')).toBeDefined()
+  })
+
+  it('starts "This month" on the 1st, leaving last month\'s days to All time', async () => {
+    pinClock('2027-03-02T12:00')
+    await act(async () => {
+      const task = await store.createTask({
+        title: 'Read',
+        kind: 'timer',
+        goalDirection: 'atLeast',
+        goalValue: 30 * 60,
+      })
+      await store.addManualSeconds('task', task.id, 40 * 60, '2027-02-27') // met
+      await store.addManualSeconds('task', task.id, 10 * 60, '2027-02-28') // touched
+      await store.addManualSeconds('task', task.id, 45 * 60, '2027-03-01') // met
+    })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Stats/ }))
+
+    // Mar 1 and today: one met, today still open, February out of the window.
+    // Checked on the first render, not in a waitFor: the one-second tick would paper
+    // over a screen that first drew with a stale clock.
+    expect(screen.getByText('45m')).toBeDefined()
+    expect(screen.getByText(/^1 of 2 days/)).toBeDefined()
+    expect(screen.queryByText(/touched on/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'All time' }))
+    await waitFor(() => expect(screen.getByText('1h 35m')).toBeDefined())
+    expect(screen.getByText(/touched on 3/)).toBeDefined()
   })
 
   it('opens task detail and shows a streak', async () => {

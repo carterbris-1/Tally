@@ -89,11 +89,11 @@ export async function sync(): Promise<void> {
     }
 
     setState({ status: 'syncing' })
+    let pulled = 0
     try {
       const lastPushedAt = (await getMeta<string>(PUSH_KEY)) ?? EPOCH
       const lastPulledAt = (await getMeta<string>(PULL_KEY)) ?? EPOCH
       let pushed = 0
-      let pulled = 0
       let newestPushed = lastPushedAt
       let newestPulled = lastPulledAt
 
@@ -146,6 +146,9 @@ export async function sync(): Promise<void> {
       setState({ status: 'idle', last: { pushed, pulled, at: new Date().toISOString() } })
     } catch (err) {
       // Offline is expected, not exceptional. Keep the watermarks and try later.
+      // Tables before the failing one may already be written to IndexedDB; the store
+      // must see them, or the next local edit saves its stale copy over the pulled one.
+      if (pulled > 0) await store.load().catch(() => undefined)
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
     }
   })().finally(() => {
