@@ -10,13 +10,18 @@ Paste the whole of `schema.sql` into the Supabase SQL editor and run it:
 - once when you first turn on sync, and
 - **again whenever its table list changes**, such as when a new collection is added.
 
-It is idempotent: `create table if not exists`, `create index if not exists`, and every
-policy is dropped before it is recreated. Re-running it touches nothing that already exists
-and adds only what is missing. No data is at risk either way, because the client holds the
-full dataset in IndexedDB and pushes it up once the table exists.
+It is safe to re-run, with two things to know:
+
+- Tables and indexes that already exist are left alone (`create ... if not exists`). That
+  also means an existing table's columns are never changed by re-running it.
+- The four RLS policies on every table are dropped and recreated on every run. Make policy
+  changes in `schema.sql`, not in the dashboard, or the next run will undo them.
+
+No row data is touched, and the client holds the full dataset in IndexedDB anyway, pushing
+it up once a table exists.
 
 The table list in `schema.sql` must match `TABLES` in `src/db/sync.ts`, plus the reserved
-`settings` table, which is not synced yet.
+`settings` table, which is not synced yet. `tests/db/schema.test.ts` fails if they drift.
 
 ## Why re-running matters: the `daily_reads` incident
 

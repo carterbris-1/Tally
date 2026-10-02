@@ -38,8 +38,19 @@ export function subscribeToTick(fn: () => void): () => void {
  * With nothing subscribed there is no interval keeping `current` fresh, so read the
  * clock instead of serving whatever it was when the last timer stopped (or when this
  * module loaded, which is also what made the clock impossible to fake in tests).
+ *
+ * Read it once per synchronous pass, not once per call: a first mount renders every
+ * `useNow` before any of them subscribes, and React wants one snapshot for all of them.
+ * Re-reading per call would let a second boundary split a single render across two days.
  */
+let fresh = false
 export const getTick = (): number => {
-  if (listeners.size === 0) current = second()
+  if (listeners.size === 0 && !fresh) {
+    current = second()
+    fresh = true
+    queueMicrotask(() => {
+      fresh = false
+    })
+  }
   return current
 }

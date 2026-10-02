@@ -39,7 +39,7 @@ afterEach(() => {
  */
 const pinClock = (iso: string): void => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(wallClock(iso))
+  vi.setSystemTime(wallClock(iso, store.dayConfig))
 }
 
 describe('the app', () => {

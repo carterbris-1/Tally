@@ -630,7 +630,9 @@ One shared one-second tick for every running timer.
 - `subscribeToTick(fn)` — starts the interval on the first subscriber, clears it on the
   last. Also ticks on `visibilitychange`, because a backgrounded tab comes back with a
   stale clock.
-- `getTick()` — the current second, floored.
+- `getTick()` — the current second, floored. With nothing subscribed it reads the clock
+  (once per synchronous pass, so one render sees one value) instead of serving a stale
+  cached second. That is also what lets UI tests pin the date with `vi.setSystemTime`.
 
 It holds **no elapsed time**. It is a render trigger and nothing else; elapsed time is
 always derived from `startedAt`.
@@ -918,7 +920,9 @@ that throws on mount and renders nothing.
    merge each incoming row only if strictly newer than the local one.
 4. Watermarks advance from the newest `updated_at` the **server** returned.
 5. If anything came down, `store.load()` refreshes the snapshot and the UI re-renders.
-6. Any failure sets `error`, keeps the watermarks, and the next pass tries again.
+6. Any failure sets `error`, keeps the watermarks, and the next pass tries again. If
+   earlier tables already pulled rows into IndexedDB, `store.load()` runs first so the
+   store does not keep stale copies of them.
 
 ### Where a day gets decided
 

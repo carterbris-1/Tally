@@ -22,10 +22,9 @@ describe('a timed session on a flagged task', () => {
   it('shows up on the schedule, ticked, once the timer stops', async () => {
     const task = await store.createTask({ title: 'Read', kind: 'timer', logToPlan: true })
 
-    // The session has to land on the REAL today, not a date written into the test: the
-    // canvas takes its day from `useNow`, and ticker.ts caches that at module load, so
-    // vi.setSystemTime cannot move it. Minutes 605 and 650 are 14:05 and 14:50 past the
-    // 04:00 day start on whatever day this runs.
+    // Minutes 605 and 650 are 14:05 and 14:50 past the 04:00 day start on whatever day
+    // this runs. The real day is fine here: nothing below depends on where it falls in
+    // the week or month.
     const dayKey = store.todayKey()
     const cfg = store.dayConfig
     vi.useFakeTimers({ toFake: ['Date'] })

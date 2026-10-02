@@ -14,7 +14,7 @@ import { store } from './store'
 import { supabase, isSyncConfigured } from './supabase'
 
 /** Local collection -> remote table. */
-const TABLES: Array<[StoreName, string]> = [
+export const TABLES: Array<[StoreName, string]> = [
   ['tasks', 'tasks'],
   ['entries', 'entries'],
   ['todos', 'todos'],
