@@ -443,6 +443,8 @@ describe('the app', () => {
     })
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Stats/ }))
+    // the sittings are 1-3 days back, which is last month early in a month; all time always holds them
+    fireEvent.click(screen.getByRole('button', { name: 'All time' }))
 
     await waitFor(() => expect(screen.getByText('Read')).toBeDefined())
     expect(screen.getByText(/touched on 3/)).toBeDefined()
