@@ -7,13 +7,18 @@
 -- is exactly three things — who owns the row, when it changed, and whether it is
 -- deleted — and those are real columns.
 --
--- Run this once in the Supabase SQL editor.
+-- Run this in the Supabase SQL editor. Not once: re-run it whenever the table list
+-- below changes, or sync will fail on the new collection with "could not find the
+-- table". It is idempotent. See README.md in this folder.
 
 create extension if not exists "pgcrypto";
 
 do $$
 declare t text;
 begin
+  -- Keep this in step with TABLES in src/db/sync.ts, plus 'settings'. That one is
+  -- reserved and deliberately not synced yet: settings live in the local meta store as
+  -- a single key, not as rows, and stay per-device until they are given a row shape.
   foreach t in array array['tasks', 'entries', 'todos', 'day_plans', 'blocks', 'projects', 'phases', 'daily_reads', 'settings']
   loop
     execute format($f$

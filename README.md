@@ -57,7 +57,8 @@ and ends at 05:15 across a DST boundary. `tests/ui/` drives the real app.
 
 1. Create a free Supabase project.
 2. Run `supabase/schema.sql` in its SQL editor. It creates one table per collection with
-   row-level security scoped to `auth.uid()`.
+   row-level security scoped to `auth.uid()`. Re-run it whenever its table list changes;
+   it is idempotent.
 3. Copy `.env.example` to `.env.local` and fill in the URL and anon key.
 4. Sign in from Settings with a magic link.
 

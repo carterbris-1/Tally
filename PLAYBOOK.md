@@ -13,7 +13,7 @@ src/db/       idb.ts (storage) · store.ts (the only mutations) · selectors.ts 
 src/ui/       screens and components
 tests/core/   the pure functions, including every DST case
 tests/ui/     drives the real app in jsdom
-supabase/     schema.sql — run once in the SQL editor
+supabase/     schema.sql — re-run in the SQL editor whenever its table list changes
 ```
 
 **The one rule.** `src/core/` imports nothing from `src/db/` or `src/ui/`. If a piece of
@@ -46,7 +46,8 @@ and will not publish a red build.
 ### Turn on sync from scratch
 
 1. Create a free Supabase project. Copy the URL and anon key from **Settings → API**.
-2. Paste `supabase/schema.sql` into the SQL editor and run it. It creates one table per
+2. Paste `supabase/schema.sql` into the SQL editor and run it, and again whenever its
+   table list changes (see `supabase/README.md`). It creates one table per
    collection with RLS scoped to `auth.uid()`.
 3. **Verify RLS before trusting it.** In the SQL editor, open a new query as the `anon`
    role (or just query from a signed-out browser console) and run
